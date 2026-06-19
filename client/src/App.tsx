@@ -811,10 +811,40 @@ function EventConsole() {
 
 function EventRow({ event }: { event: LiveEvent }) {
   const [expanded, setExpanded] = useState(false);
+  const [payloadHeight, setPayloadHeight] = useState(() => {
+    const savedHeight = Number(localStorage.getItem("sms-gateway:event-payload-height"));
+    return Number.isFinite(savedHeight) && savedHeight >= 120 ? savedHeight : 220;
+  });
   const sourceColor = sourceColors[event.source];
   const severityColor = event.severity === "error" ? "#f87171" : sourceColor;
   const rawDetails = event.rawPayload ?? event.rawSummary;
   const hasRawDetails = rawDetails !== undefined && rawDetails !== null;
+
+  useEffect(() => {
+    localStorage.setItem("sms-gateway:event-payload-height", String(payloadHeight));
+  }, [payloadHeight]);
+
+  function handlePayloadResizeStart(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const startY = event.clientY;
+    const startHeight = payloadHeight;
+    const maxHeight = Math.max(160, window.innerHeight - 180);
+
+    function handlePointerMove(moveEvent: PointerEvent) {
+      const nextHeight = Math.min(maxHeight, Math.max(120, startHeight + moveEvent.clientY - startY));
+      setPayloadHeight(nextHeight);
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }
 
   return (
     <Box
@@ -867,25 +897,53 @@ function EventRow({ event }: { event: LiveEvent }) {
       </Stack>
       {expanded && hasRawDetails && (
         <Box
-          component="pre"
           sx={{
             m: 0,
             mb: 1,
             ml: 4,
-            p: 1,
-            maxHeight: 220,
-            overflow: "auto",
+            position: "relative",
             bgcolor: "#020617",
             border: "1px solid #1f2937",
             borderRadius: 1,
-            color: "#cbd5e1",
-            fontFamily: "monospace",
-            fontSize: 12,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
           }}
         >
-          {JSON.stringify(rawDetails, null, 2)}
+          <Box
+            onPointerDown={handlePayloadResizeStart}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize event payload"
+            sx={{
+              height: 10,
+              cursor: "ns-resize",
+              borderBottom: "1px solid #1f2937",
+              "&::after": {
+                content: '""',
+                display: "block",
+                width: 48,
+                height: 3,
+                mx: "auto",
+                mt: "3px",
+                borderRadius: 999,
+                bgcolor: "#4b5563",
+              },
+            }}
+          />
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              p: 1,
+              height: payloadHeight,
+              overflow: "auto",
+              color: "#cbd5e1",
+              fontFamily: "monospace",
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {JSON.stringify(rawDetails, null, 2)}
+          </Box>
         </Box>
       )}
     </Box>
