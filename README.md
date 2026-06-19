@@ -141,7 +141,7 @@ Tracking starts from a live event:
 3. Click `Track media`.
 4. Open the timeline from the row or the dashboard widget.
 
-Media matching is intentionally simple in this pass. The app derives a media key from common fields such as `movie.title`, `series.title`, `tmdbId`, `imdbId`, `tvdbId`, `title`, `subject`, and media type hints. Source-specific matching can be improved later as real payload samples arrive.
+Media matching is intentionally loose in this pass. The app first tries derived keys from common fields such as `movie.title`, `series.title`, `tmdbId`, `imdbId`, `tvdbId`, `title`, `subject`, and media type hints. If that misses, incoming events are compared against existing tracked media titles using normalized text from the event title, message, entity title, and sanitized raw payload. Source-specific matching can be improved later as real payload samples arrive.
 
 For local development, the repo includes a mock webhook event generator. It posts synthetic Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and test events into the same webhook endpoints external apps use:
 

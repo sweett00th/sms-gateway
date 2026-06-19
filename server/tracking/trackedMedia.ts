@@ -112,18 +112,25 @@ export function trackMediaFromEvent(db: Database, event: LiveEvent): TrackedMedi
 
 export function persistEventForTrackedMedia(db: Database, event: LiveEvent): void {
   const identity = identifyMedia(event);
+  const trackedMediaIds = new Set<number>();
 
-  if (!identity) {
-    return;
+  if (identity) {
+    const row = firstRow(db, "SELECT id FROM tracked_media WHERE media_key = ?", [identity.mediaKey]);
+
+    if (row) {
+      trackedMediaIds.add(Number(row[0]));
+    }
   }
 
-  const row = firstRow(db, "SELECT id FROM tracked_media WHERE media_key = ?", [identity.mediaKey]);
+  const looseMatches = findLooseTrackedMediaMatches(db, event);
 
-  if (!row) {
-    return;
+  for (const match of looseMatches) {
+    trackedMediaIds.add(match);
   }
 
-  persistTimelineEvent(db, Number(row[0]), event);
+  for (const trackedMediaId of trackedMediaIds) {
+    persistTimelineEvent(db, trackedMediaId, event);
+  }
 }
 
 function persistTimelineEvent(db: Database, trackedMediaId: number, event: LiveEvent): void {
@@ -157,6 +164,44 @@ function persistTimelineEvent(db: Database, trackedMediaId: number, event: LiveE
     now,
   ]);
   db.query("UPDATE tracked_media SET updated_at = ? WHERE id = ?", [now, trackedMediaId]);
+}
+
+function findLooseTrackedMediaMatches(db: Database, event: LiveEvent): number[] {
+  const haystack = normalizeSearchText([
+    event.title,
+    event.message,
+    event.entityTitle ?? "",
+    JSON.stringify(event.rawPayload ?? event.rawSummary ?? null),
+  ].join(" "));
+  const candidates = [...db.query("SELECT id, title FROM tracked_media")].map((row) => ({
+    id: Number(row[0]),
+    title: String(row[1]),
+    needle: normalizeSearchText(String(row[1])),
+  }));
+
+  return candidates
+    .filter((candidate) => candidate.needle.length >= 3 && titleAppearsInText(candidate.needle, haystack))
+    .sort((left, right) => right.needle.length - left.needle.length)
+    .slice(0, 3)
+    .map((candidate) => candidate.id);
+}
+
+function titleAppearsInText(title: string, text: string): boolean {
+  if (text.includes(title)) {
+    return true;
+  }
+
+  const words = title.split(" ").filter((word) => word.length > 2);
+
+  if (words.length === 0) {
+    return false;
+  }
+
+  return words.every((word) => text.includes(word));
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }
 
 function mapTrackedMedia(row: unknown[]): TrackedMedia {

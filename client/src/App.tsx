@@ -254,6 +254,11 @@ function App() {
     fetchAuthState();
   }
 
+  function openTrackedMedia(id: number | null) {
+    setSelectedTrackedMediaId(id);
+    setPage("tracked-media");
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -293,10 +298,7 @@ function App() {
             version={version}
             status={backendStatus}
             overview={overview}
-            onOpenTrackedMedia={(id) => {
-              setSelectedTrackedMediaId(id);
-              setPage("tracked-media");
-            }}
+            onOpenTrackedMedia={openTrackedMedia}
           />
         ) : (
           <LoginScreen
@@ -313,6 +315,7 @@ function App() {
             onClose={() => setProfileOpen(false)}
           />
         )}
+        {user && <EventConsole onOpenTrackedMedia={openTrackedMedia} />}
       </Box>
     </ThemeProvider>
   );
@@ -623,7 +626,6 @@ function Dashboard({
           ))}
         </Grid>
       </Container>
-      <EventConsole onOpenTrackedMedia={onOpenTrackedMedia} />
     </>
   );
 }
