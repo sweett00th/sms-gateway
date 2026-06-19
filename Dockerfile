@@ -18,9 +18,12 @@ RUN deno cache server/main.ts
 
 COPY --from=client-build /app/client/dist ./client/dist
 
-USER root
-RUN mkdir -p /data && chown deno:deno /data
-USER deno
+RUN mkdir -p /data \
+  && chown -R 99:100 /data \
+  && chmod -R 775 /data \
+  && chmod -R a+rX /app
+
+USER 99:100
 EXPOSE 3020
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["deno", "eval", "--allow-env", "--allow-net", "const port = Deno.env.get('PORT') || '3020'; const controller = new AbortController(); setTimeout(() => controller.abort(), 3000); const response = await fetch('http://127.0.0.1:' + port + '/health', { signal: controller.signal }); Deno.exit(response.ok ? 0 : 1);"]
