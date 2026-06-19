@@ -14,7 +14,7 @@ Current scope:
 
 - Plain JavaScript Node/Express.
 - Internal port defaults to `3020`.
-- GHCR image is `ghcr.io/joemess21/sms-gateway`.
+- GHCR image is `ghcr.io/sweett00th/sms-gateway`.
 - Unraid appdata default is `/mnt/user/appdata/sms-gateway`.
 - Twilio variables are placeholders only. Do not add provider logic until requested.
 - Webhook routes may use the optional `SHARED_SECRET` header check via `x-sms-secret`.

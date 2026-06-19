@@ -1,18 +1,18 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>sms-gateway</Name>
-  <Repository>ghcr.io/joemess21/sms-gateway:latest</Repository>
-  <Registry>https://ghcr.io/joemess21/sms-gateway</Registry>
+  <Repository>ghcr.io/sweett00th/sms-gateway:latest</Repository>
+  <Registry>https://ghcr.io/sweett00th/sms-gateway</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/joemess21/sms-gateway/issues</Support>
-  <Project>https://github.com/joemess21/sms-gateway</Project>
+  <Support>https://github.com/sweett00th/sms-gateway/issues</Support>
+  <Project>https://github.com/sweett00th/sms-gateway</Project>
   <Overview>Internal LAN-only webhook-to-SMS gateway for home server notifications from Jellyseerr/Seerr, Jellyfin, Radarr, and Sonarr. This initial scaffold receives test webhooks and exposes health/version endpoints; SMS provider delivery is not implemented yet.</Overview>
   <Category>Tools:</Category>
   <WebUI>http://[IP]:[PORT:3020]/health</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/joemess21/sms-gateway/main/templates/sms-gateway.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/sweett00th/sms-gateway/main/templates/sms-gateway.xml</TemplateURL>
   <Icon/>
   <ExtraParams/>
   <PostArgs/>

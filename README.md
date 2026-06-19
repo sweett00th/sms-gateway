@@ -83,7 +83,7 @@ The workflow at `.github/workflows/docker-publish.yml` builds the Docker image o
 Pull requests build but do not push images. Pushes to `main` and tags publish to:
 
 ```text
-ghcr.io/joemess21/sms-gateway
+ghcr.io/sweett00th/sms-gateway
 ```
 
 Expected tags include:
@@ -97,7 +97,7 @@ Expected tags include:
 The Unraid template is at `templates/sms-gateway.xml` and points to:
 
 ```text
-ghcr.io/joemess21/sms-gateway:latest
+ghcr.io/sweett00th/sms-gateway:latest
 ```
 
 To use it as a custom template repository in Unraid:
@@ -107,7 +107,7 @@ To use it as a custom template repository in Unraid:
 3. Add the GitHub repository URL:
 
 ```text
-https://github.com/joemess21/sms-gateway
+https://github.com/sweett00th/sms-gateway
 ```
 
 4. Install the `sms-gateway` template and configure environment variables.
