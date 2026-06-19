@@ -1,10 +1,14 @@
 import { Hono } from "@hono/hono";
 import { serveStatic } from "@hono/hono/deno";
-import admin from "./routes/admin.ts";
+import { initializeDatabase } from "./db/index.ts";
+import { requireAdmin } from "./middleware/auth.ts";
+import { createAdminRoutes } from "./routes/admin.ts";
+import { createAuthRoutes } from "./routes/auth.ts";
 import health from "./routes/health.ts";
 import webhooks from "./routes/webhooks.ts";
 import { getPort, getSharedSecret } from "./lib/config.ts";
 
+const db = await initializeDatabase();
 const app = new Hono();
 const port = getPort();
 
@@ -28,7 +32,9 @@ app.onError((err, c) => {
 });
 
 app.route("/", health);
-app.route("/api", admin);
+app.route("/api/auth", createAuthRoutes(db));
+app.use("/api/admin/*", requireAdmin(db));
+app.route("/api", createAdminRoutes(db));
 app.route("/webhook", webhooks);
 
 app.use("/*", serveStatic({ root: "./client/dist" }));

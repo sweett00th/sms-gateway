@@ -22,9 +22,14 @@
   <DonateText/>
   <DonateLink/>
   <Requires/>
-  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/sms-gateway" Mode="rw" Description="Application config directory." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/sms-gateway</Config>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/sms-gateway" Mode="rw" Description="Persistent SQLite database directory." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/sms-gateway</Config>
   <Config Name="Web UI Port" Target="3020" Default="3020" Mode="tcp" Description="HTTP port for sms-gateway." Type="Port" Display="always" Required="true" Mask="false">3020</Config>
   <Config Name="TZ" Target="TZ" Default="America/New_York" Mode="" Description="Container timezone." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="DB_PATH" Target="DB_PATH" Default="/data/sms-gateway.db" Mode="" Description="SQLite database file path inside the container." Type="Variable" Display="always" Required="true" Mask="false">/data/sms-gateway.db</Config>
+  <Config Name="ADMIN_USERNAME" Target="ADMIN_USERNAME" Default="admin" Mode="" Description="Initial admin username used only when no users exist." Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
+  <Config Name="ADMIN_PASSWORD" Target="ADMIN_PASSWORD" Default="" Mode="" Description="Initial admin password used only when no users exist. Set before first start, then remove or rotate after bootstrap if desired." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="SESSION_TTL_DAYS" Target="SESSION_TTL_DAYS" Default="7" Mode="" Description="Server-side session lifetime in days." Type="Variable" Display="always" Required="false" Mask="false">7</Config>
+  <Config Name="COOKIE_SECURE" Target="COOKIE_SECURE" Default="false" Mode="" Description="Set true only when serving behind HTTPS. Keep false for LAN HTTP." Type="Variable" Display="always" Required="false" Mask="false">false</Config>
   <Config Name="SHARED_SECRET" Target="SHARED_SECRET" Default="" Mode="" Description="Optional webhook shared secret. When set, webhook requests must include the x-sms-secret header." Type="Variable" Display="always" Required="false" Mask="true"/>
   <Config Name="TWILIO_ACCOUNT_SID" Target="TWILIO_ACCOUNT_SID" Default="" Mode="" Description="Future Twilio account SID placeholder. Not used by the scaffold yet." Type="Variable" Display="always" Required="false" Mask="true"/>
   <Config Name="TWILIO_AUTH_TOKEN" Target="TWILIO_AUTH_TOKEN" Default="" Mode="" Description="Future Twilio auth token placeholder. Not used by the scaffold yet." Type="Variable" Display="always" Required="false" Mask="true"/>

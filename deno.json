@@ -1,16 +1,17 @@
 {
   "tasks": {
-    "dev:server": "deno run --watch --allow-env --allow-net --allow-read=. server/main.ts",
+    "dev:server": "deno run --env-file=.env --watch --allow-env --allow-net --allow-read=.,/data --allow-write=.,/data server/main.ts",
     "dev:client": "npm --prefix client run dev",
     "build:client": "npm --prefix client run build",
     "dev": "deno task dev:server & deno task dev:client",
-    "start": "deno run --allow-env --allow-net --allow-read=. server/main.ts",
+    "start": "deno run --env-file=.env --allow-env --allow-net --allow-read=.,/data --allow-write=.,/data server/main.ts",
     "check": "deno check server/main.ts",
     "fmt": "deno fmt server/**/*.ts deno.json"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.6.16",
-    "@hono/hono/deno": "jsr:@hono/hono@^4.6.16/deno"
+    "@hono/hono/deno": "jsr:@hono/hono@^4.6.16/deno",
+    "sqlite": "https://deno.land/x/sqlite@v3.9.1/mod.ts"
   },
   "fmt": {
     "semiColons": true,

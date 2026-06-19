@@ -1,13 +1,15 @@
 # sms-gateway
 
-Internal Unraid Docker app for receiving home server webhooks and, later, sending SMS notifications. This version focuses on the deployable app shell: a Deno/Hono backend, a Vite React admin panel, Docker packaging, GHCR publishing, and an Unraid template.
+Internal Unraid Docker app for receiving home server webhooks and, later, sending SMS notifications. The app runs a Deno/Hono backend, a Vite React admin panel, local SQLite persistence, local username/password auth, Docker packaging, GHCR publishing, and an Unraid template.
 
-No Twilio sending, database/storage, login, or auth system is implemented yet.
+No Twilio sending is implemented yet.
 
 ## Architecture
 
 - Backend: Deno + TypeScript + Hono
 - Frontend: Vite + React + TypeScript + Material UI
+- Persistence: single local SQLite database
+- Auth: local username/password with server-side SQLite sessions
 - Production: one Docker container
 - Image: `ghcr.io/sweett00th/sms-gateway`
 - Unraid template: `templates/sms-gateway.xml`
@@ -16,11 +18,15 @@ In production, the Deno/Hono server handles API and webhook routes and serves th
 
 In local development, the backend runs on port `3020` and Vite runs separately. Vite proxies `/api`, `/health`, and `/webhook` to `http://localhost:3020`.
 
+SQLite uses `deno.land/x/sqlite@v3.9.1`, a WASM-based Deno SQLite module. That keeps the runtime self-contained and avoids `--allow-ffi`; the tradeoff is that this library does not support SQLite WAL mode.
+
 ## Local Development
 
 Start the backend:
 
 ```powershell
+$env:DB_PATH=".data/sms-gateway.db"
+$env:ADMIN_PASSWORD="change-me"
 deno task dev:server
 ```
 
@@ -65,7 +71,11 @@ npm --prefix client run typecheck
 - `GET /` serves the React admin panel when `client/dist` exists.
 - `GET /health` returns service health and Deno runtime info.
 - `GET /api/version` returns app, version, runtime, environment, and build metadata.
-- `GET /api/admin/overview` returns placeholder dashboard counts and provider configuration status.
+- `GET /api/auth/status` returns whether any local user exists.
+- `GET /api/auth/me` returns the current user or `401`.
+- `POST /api/auth/login` creates a server-side session and sets an HttpOnly cookie.
+- `POST /api/auth/logout` deletes the current session and clears the cookie.
+- `GET /api/admin/overview` returns SQLite-backed dashboard counts and provider configuration status. It requires login.
 - `POST /webhook/test` accepts JSON, logs a summary, and returns the summary. It does not send SMS.
 
 Unknown `/api/*` and `/webhook/*` routes return JSON 404 responses. Unknown non-API routes fall back to the React `index.html` for future client-side routing.
@@ -80,6 +90,36 @@ x-sms-secret: your-secret
 
 If `SHARED_SECRET` is unset, webhook requests are allowed and the server logs a startup warning. Set it in Unraid for normal use.
 
+## SQLite Persistence
+
+The app stores local state in one SQLite database file. By default:
+
+```text
+/data/sms-gateway.db
+```
+
+Override it with `DB_PATH`. In Unraid, `/mnt/user/appdata/sms-gateway` is mounted to `/data`, so the database survives container updates.
+
+Migrations run automatically on startup and are tracked in `schema_migrations`. Current tables include `users`, `sessions`, `message_receipts`, `notification_profiles`, `event_templates`, `provider_settings`, and `webhook_events`.
+
+To reset the app in local development, stop the server and delete the SQLite file you used for `DB_PATH`, for example:
+
+```powershell
+Remove-Item .data\sms-gateway.db
+```
+
+## Local Auth
+
+The first admin user is bootstrapped only when the `users` table is empty.
+
+- Set `ADMIN_PASSWORD` before first start.
+- `ADMIN_USERNAME` defaults to `admin`.
+- Passwords are stored as PBKDF2-SHA256 hashes with per-user salts.
+- `ADMIN_PASSWORD` is ignored after any user exists.
+- There is no public registration and no third-party login.
+
+Sessions are random opaque tokens stored in an HttpOnly `sms_gateway_session` cookie. Only a SHA-256 hash of each session token is stored in SQLite. `SESSION_TTL_DAYS` controls expiry and defaults to `7`. Keep `COOKIE_SECURE=false` for local HTTP/LAN use; set it to `true` only behind HTTPS.
+
 ## First Tests
 
 ```powershell
@@ -91,8 +131,16 @@ curl http://localhost:3020/api/version
 ```
 
 ```powershell
+curl http://localhost:3020/api/auth/status
+```
+
+Unauthenticated admin API calls should return `401`:
+
+```powershell
 curl http://localhost:3020/api/admin/overview
 ```
+
+Log in from the React UI at `http://localhost:3020/`, or use the API and keep the returned cookie in your client.
 
 ```powershell
 curl -Method POST http://localhost:3020/webhook/test `
@@ -114,6 +162,12 @@ Run locally:
 docker run --rm -p 3020:3020 `
   -e PORT=3020 `
   -e TZ=America/New_York `
+  -e DB_PATH=/data/sms-gateway.db `
+  -e ADMIN_USERNAME=admin `
+  -e ADMIN_PASSWORD=change-me `
+  -e SESSION_TTL_DAYS=7 `
+  -e COOKIE_SECURE=false `
+  -v ${PWD}\.data:/data `
   sms-gateway
 ```
 
@@ -123,7 +177,7 @@ Open the admin panel:
 http://localhost:3020/
 ```
 
-The final image runs the Deno server, not the Vite dev server. The Docker build compiles the frontend first, copies `client/dist` into the final Deno image, and runs with explicit Deno permissions for env, network, and app file reads.
+The final image runs the Deno server, not the Vite dev server. The Docker build compiles the frontend first, copies `client/dist` into the final Deno image, creates `/data`, and runs with explicit Deno permissions for env, network, `/app` reads, `/data` reads, and `/data` writes.
 
 ## GitHub Actions and GHCR
 
@@ -163,6 +217,8 @@ https://github.com/sweett00th/sms-gateway
 
 Keep the app LAN-only. This scaffold does not assume public proxying, Cloudflare, NPM, or any external ingress.
 
+Set `ADMIN_PASSWORD` before the first start so the app can create the initial local admin user. After that, changing `ADMIN_USERNAME` or `ADMIN_PASSWORD` in the template will not overwrite existing users.
+
 ## Environment Variables
 
 Copy `.env.example` for local reference only. In Unraid, set values through the container template.
@@ -171,6 +227,11 @@ Copy `.env.example` for local reference only. In Unraid, set values through the 
 | --- | --- | --- |
 | `PORT` | No | HTTP port inside the container. Defaults to `3020`. |
 | `TZ` | No | Timezone. Defaults to `America/New_York` in the Unraid template. |
+| `DB_PATH` | No | SQLite database path. Defaults to `/data/sms-gateway.db`. |
+| `ADMIN_USERNAME` | Bootstrap | Initial admin username used only when no users exist. Defaults to `admin`. |
+| `ADMIN_PASSWORD` | Bootstrap | Initial admin password used only when no users exist. No safe default; set in Unraid before first start. |
+| `SESSION_TTL_DAYS` | No | Server-side session lifetime in days. Defaults to `7`. |
+| `COOKIE_SECURE` | No | Adds the Secure cookie flag when `true`. Keep `false` for LAN HTTP. |
 | `SHARED_SECRET` | Recommended | Optional webhook secret checked against the `x-sms-secret` header. Set this in Unraid. |
 | `TWILIO_ACCOUNT_SID` | Future | Placeholder for Twilio configuration. Used only to report whether provider settings appear configured. |
 | `TWILIO_AUTH_TOKEN` | Future | Placeholder for Twilio configuration. No SMS is sent. |
