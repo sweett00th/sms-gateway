@@ -11,7 +11,6 @@
   <Project>https://github.com/sweett00th/sms-gateway</Project>
   <Overview>Internal LAN-only webhook-to-SMS gateway for home server notifications from Jellyseerr/Seerr, Jellyfin, Radarr, and Sonarr. The container runs a Deno/Hono API and serves the React admin panel. SMS provider delivery is not implemented yet.</Overview>
   <Category>Tools:</Category>
-  <WebUI>http://[IP]:[PORT:3020]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/sweett00th/sms-gateway/main/templates/sms-gateway.xml</TemplateURL>
   <WebUI>http://[IP]:[PORT:3020]/</WebUI>
   <Icon>https://raw.githubusercontent.com/sweett00th/sms-gateway/main/assets/icon.png</Icon>
