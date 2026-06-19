@@ -117,11 +117,12 @@ The default ring buffer keeps events from the last `10` minutes and caps the lis
 ```env
 EVENT_BUFFER_MINUTES=10
 EVENT_BUFFER_MAX=250
+EVENT_RAW_MAX_BYTES=20000
 ```
 
 External apps still need to be configured to push webhooks into this app. This feature does not poll Jellyfin, Jellyseerr/Seerr, Radarr, Sonarr, SABnzbd, or any other app API.
 
-The console supports source filters for Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and System/Test. Webhook payloads are normalized into compact events and obvious secret-looking fields such as tokens, passwords, API keys, and authorization headers are redacted from event summaries.
+The console supports source filters for Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and System/Test. Webhook payloads are normalized into compact events. Expanding an event row shows the sanitized raw webhook payload. Obvious secret-looking fields such as tokens, passwords, API keys, and authorization headers are recursively redacted. If the sanitized raw payload exceeds `EVENT_RAW_MAX_BYTES`, the expanded view shows a truncated preview with byte metadata.
 
 For local development, the repo includes a mock webhook event generator. It posts synthetic Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and test events into the same webhook endpoints external apps use:
 
@@ -300,6 +301,7 @@ Copy `.env.example` for local reference only. In Unraid, set values through the 
 | `COOKIE_SECURE` | No | Adds the Secure cookie flag when `true`. Keep `false` for LAN HTTP. |
 | `EVENT_BUFFER_MINUTES` | No | In-memory Event Console retention window in minutes. Defaults to `10`. |
 | `EVENT_BUFFER_MAX` | No | Maximum in-memory Event Console event count. Defaults to `250`. |
+| `EVENT_RAW_MAX_BYTES` | No | Maximum sanitized raw payload bytes included per in-memory event. Defaults to `20000`. |
 | `WEBHOOK_BASE_URL` | Dev only | Mock event generator target URL. Defaults to `http://localhost:$PORT`. |
 | `MOCK_EVENT_INTERVAL_MS` | Dev only | Mock event generator interval. Defaults to `2500`. |
 | `SHARED_SECRET` | Recommended | Optional webhook secret checked against the `x-sms-secret` header. Set this in Unraid. |

@@ -1,4 +1,6 @@
 import LogoutIcon from "@mui/icons-material/Logout";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import SettingsIcon from "@mui/icons-material/Settings";
 import SmsIcon from "@mui/icons-material/Sms";
 import StorageIcon from "@mui/icons-material/Storage";
@@ -88,6 +90,7 @@ type LiveEvent = {
   entityType?: string;
   entityTitle?: string;
   rawSummary?: Record<string, unknown>;
+  rawPayload?: unknown;
 };
 
 const theme = createTheme({
@@ -751,45 +754,85 @@ function EventConsole() {
 }
 
 function EventRow({ event }: { event: LiveEvent }) {
+  const [expanded, setExpanded] = useState(false);
   const sourceColor = sourceColors[event.source];
   const severityColor = event.severity === "error" ? "#f87171" : sourceColor;
+  const rawDetails = event.rawPayload ?? event.rawSummary;
+  const hasRawDetails = rawDetails !== undefined && rawDetails !== null;
 
   return (
-    <Stack
-      direction="row"
-      spacing={1}
-      alignItems="baseline"
+    <Box
       sx={{
-        py: 0.75,
         borderBottom: "1px solid rgba(31, 41, 55, 0.75)",
-        color: "#d1d5db",
       }}
     >
-      <Typography sx={{ color: "#6b7280", minWidth: 82, fontFamily: "monospace", fontSize: 12 }}>
-        {new Date(event.timestamp).toLocaleTimeString()}
-      </Typography>
-      <Typography
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="baseline"
         sx={{
-          color: sourceColor,
-          border: `1px solid ${sourceColor}`,
-          borderRadius: 1,
-          px: 0.75,
-          minWidth: 74,
-          textAlign: "center",
-          fontFamily: "monospace",
-          fontSize: 12,
+          py: 0.75,
+          color: "#d1d5db",
         }}
       >
-        {sourceLabels[event.source]}
-      </Typography>
-      <Typography sx={{ color: severityColor, minWidth: 92, fontFamily: "monospace", fontSize: 12 }}>
-        {event.eventType}
-      </Typography>
-      <Typography sx={{ color: "#f9fafb", fontFamily: "monospace", fontSize: 13 }}>
-        {event.title}
-        {event.message ? ` - ${event.message}` : ""}
-      </Typography>
-    </Stack>
+        <IconButton
+          size="small"
+          onClick={() => setExpanded((value) => !value)}
+          disabled={!hasRawDetails}
+          aria-label={expanded ? "Collapse event details" : "Expand event details"}
+          sx={{ color: hasRawDetails ? "#9ca3af" : "#374151", p: 0.25 }}
+        >
+          {expanded ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
+        </IconButton>
+        <Typography sx={{ color: "#6b7280", minWidth: 82, fontFamily: "monospace", fontSize: 12 }}>
+          {new Date(event.timestamp).toLocaleTimeString()}
+        </Typography>
+        <Typography
+          sx={{
+            color: sourceColor,
+            border: `1px solid ${sourceColor}`,
+            borderRadius: 1,
+            px: 0.75,
+            minWidth: 74,
+            textAlign: "center",
+            fontFamily: "monospace",
+            fontSize: 12,
+          }}
+        >
+          {sourceLabels[event.source]}
+        </Typography>
+        <Typography sx={{ color: severityColor, minWidth: 92, fontFamily: "monospace", fontSize: 12 }}>
+          {event.eventType}
+        </Typography>
+        <Typography sx={{ color: "#f9fafb", fontFamily: "monospace", fontSize: 13 }}>
+          {event.title}
+          {event.message ? ` - ${event.message}` : ""}
+        </Typography>
+      </Stack>
+      {expanded && hasRawDetails && (
+        <Box
+          component="pre"
+          sx={{
+            m: 0,
+            mb: 1,
+            ml: 4,
+            p: 1,
+            maxHeight: 220,
+            overflow: "auto",
+            bgcolor: "#020617",
+            border: "1px solid #1f2937",
+            borderRadius: 1,
+            color: "#cbd5e1",
+            fontFamily: "monospace",
+            fontSize: 12,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {JSON.stringify(rawDetails, null, 2)}
+        </Box>
+      )}
+    </Box>
   );
 }
 

@@ -1,4 +1,8 @@
-import { getEventBufferMax, getEventBufferMinutes } from "../lib/config.ts";
+import {
+  getEventBufferMax,
+  getEventBufferMinutes,
+  getEventRawMaxBytes,
+} from "../lib/config.ts";
 
 export type EventSourceName =
   | "jellyfin"
@@ -22,6 +26,7 @@ export type LiveEvent = {
   entityType?: string;
   entityTitle?: string;
   rawSummary?: Record<string, unknown>;
+  rawPayload?: unknown;
 };
 
 type EventClient = {
@@ -149,6 +154,25 @@ export function normalizeWebhookEvent(
     ...(entityType ? { entityType } : {}),
     ...(entityTitle ? { entityTitle } : {}),
     rawSummary: summarizeForEvent(payload),
+    rawPayload: sanitizeRawPayload(payload),
+  };
+}
+
+export function sanitizeRawPayload(payload: unknown): unknown {
+  const sanitized = sanitizeValue("payload", payload);
+  const serialized = JSON.stringify(sanitized);
+  const maxBytes = getEventRawMaxBytes();
+  const bytes = new TextEncoder().encode(serialized);
+
+  if (bytes.length <= maxBytes) {
+    return sanitized;
+  }
+
+  return {
+    __truncated: true,
+    __originalBytes: bytes.length,
+    __maxBytes: maxBytes,
+    preview: truncateUtf8(serialized, maxBytes),
   };
 }
 
@@ -204,6 +228,43 @@ function sanitizeSummaryValue(key: string, value: unknown, depth: number): unkno
   }
 
   return String(value);
+}
+
+function sanitizeValue(key: string, value: unknown): unknown {
+  if (secretKeyPattern.test(key)) {
+    return "[redacted]";
+  }
+
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(key, item));
+  }
+
+  if (isObject(value)) {
+    const sanitized: Record<string, unknown> = {};
+
+    for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      sanitized[nestedKey] = sanitizeValue(nestedKey, nestedValue);
+    }
+
+    return sanitized;
+  }
+
+  return String(value);
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const bytes = new TextEncoder().encode(value);
+  const truncated = bytes.slice(0, maxBytes);
+  return `${new TextDecoder().decode(truncated)}...`;
 }
 
 function inferSeverity(eventType: string, message: string): EventSeverity {

@@ -66,6 +66,17 @@ export function getEventBufferMax(): number {
   return max;
 }
 
+export function getEventRawMaxBytes(): number {
+  const rawValue = getEnv("EVENT_RAW_MAX_BYTES");
+  const maxBytes = rawValue ? Number(rawValue) : 20000;
+
+  if (!Number.isInteger(maxBytes) || maxBytes < 1000 || maxBytes > 250000) {
+    throw new Error(`Invalid EVENT_RAW_MAX_BYTES value: ${rawValue}`);
+  }
+
+  return maxBytes;
+}
+
 export function getEnvironment(): string {
   return getEnv("DENO_ENV") || getEnv("NODE_ENV") || "production";
 }
