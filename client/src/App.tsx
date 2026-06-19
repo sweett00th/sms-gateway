@@ -10,10 +10,12 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Container,
   CssBaseline,
+  FormControlLabel,
   Grid,
   IconButton,
   Stack,
@@ -63,6 +65,28 @@ type OverviewResponse = {
     users: number;
   };
   providerConfigured: boolean;
+};
+
+type EventSourceName =
+  | "jellyfin"
+  | "seerr"
+  | "radarr"
+  | "sonarr"
+  | "sabnzbd"
+  | "system"
+  | "test";
+
+type LiveEvent = {
+  id: string;
+  timestamp: string;
+  source: EventSourceName;
+  eventType: string;
+  severity: "info" | "success" | "warning" | "error";
+  title: string;
+  message: string;
+  entityType?: string;
+  entityTitle?: string;
+  rawSummary?: Record<string, unknown>;
 };
 
 const theme = createTheme({
@@ -317,76 +341,310 @@ function Dashboard({
   ];
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={7}>
-          <Card variant="outlined">
-            <CardContent>
-              <Stack spacing={2}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography variant="h5" component="h2">
-                    Admin panel online
-                  </Typography>
-                  <Chip
-                    size="small"
-                    label={status === "online" ? "Backend online" : status}
-                    color={status === "online" ? "success" : status === "error" ? "error" : "default"}
-                  />
-                </Stack>
-                <Typography color="text.secondary">
-                  Internal dashboard for webhook status, provider configuration, and future notification controls.
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={5}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="h6" component="h2" gutterBottom>
-                Backend Status
-              </Typography>
-              <Stack spacing={1}>
-                <Typography variant="body2" color="text.secondary">
-                  App: {version?.app ?? "Loading"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Version: {version?.version ?? "Loading"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Runtime: {version?.runtime ?? "Loading"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Environment: {version?.environment ?? "Loading"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Users: {overview?.counts.users ?? 0}
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {placeholders.map((item) => (
-          <Grid key={item.title} item xs={12} sm={6} md={3}>
-            <Card variant="outlined" sx={{ height: "100%" }}>
+    <>
+      <Container maxWidth="lg" sx={{ py: 4, pb: 10 }}>
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={7}>
+            <Card variant="outlined">
               <CardContent>
                 <Stack spacing={2}>
-                  <Box color="primary.main">{item.icon}</Box>
-                  <Typography variant="h6" component="h2">
-                    {item.title}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {item.body}
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="h5" component="h2">
+                      Admin panel online
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={status === "online" ? "Backend online" : status}
+                      color={status === "online" ? "success" : status === "error" ? "error" : "default"}
+                    />
+                  </Stack>
+                  <Typography color="text.secondary">
+                    Internal dashboard for webhook status, provider configuration, and future notification controls.
                   </Typography>
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
-        ))}
-      </Grid>
-    </Container>
+
+          <Grid item xs={12} md={5}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="h6" component="h2" gutterBottom>
+                  Backend Status
+                </Typography>
+                <Stack spacing={1}>
+                  <Typography variant="body2" color="text.secondary">
+                    App: {version?.app ?? "Loading"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Version: {version?.version ?? "Loading"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Runtime: {version?.runtime ?? "Loading"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Environment: {version?.environment ?? "Loading"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Users: {overview?.counts.users ?? 0}
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {placeholders.map((item) => (
+            <Grid key={item.title} item xs={12} sm={6} md={3}>
+              <Card variant="outlined" sx={{ height: "100%" }}>
+                <CardContent>
+                  <Stack spacing={2}>
+                    <Box color="primary.main">{item.icon}</Box>
+                    <Typography variant="h6" component="h2">
+                      {item.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {item.body}
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      </Container>
+      <EventConsole />
+    </>
+  );
+}
+
+const sourceOptions: Array<{ label: string; value: EventSourceName[]; key: string }> = [
+  { label: "Jellyfin", value: ["jellyfin"], key: "jellyfin" },
+  { label: "Seerr", value: ["seerr"], key: "seerr" },
+  { label: "Radarr", value: ["radarr"], key: "radarr" },
+  { label: "Sonarr", value: ["sonarr"], key: "sonarr" },
+  { label: "SABnzbd", value: ["sabnzbd"], key: "sabnzbd" },
+  { label: "System/Test", value: ["system", "test"], key: "system-test" },
+];
+
+const sourceColors: Record<EventSourceName, string> = {
+  jellyfin: "#22d3ee",
+  seerr: "#c084fc",
+  radarr: "#fb923c",
+  sonarr: "#4ade80",
+  sabnzbd: "#facc15",
+  system: "#9ca3af",
+  test: "#9ca3af",
+};
+
+const sourceLabels: Record<EventSourceName, string> = {
+  jellyfin: "Jellyfin",
+  seerr: "Seerr",
+  radarr: "Radarr",
+  sonarr: "Sonarr",
+  sabnzbd: "SABnzbd",
+  system: "System",
+  test: "Test",
+};
+
+function EventConsole() {
+  const [expanded, setExpanded] = useState(false);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [status, setStatus] = useState<"connecting" | "live" | "disconnected">("connecting");
+  const [enabledSources, setEnabledSources] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem("sms-gateway:event-console-filters");
+
+    if (saved) {
+      try {
+        return JSON.parse(saved) as Record<string, boolean>;
+      } catch {
+        localStorage.removeItem("sms-gateway:event-console-filters");
+      }
+    }
+
+    return Object.fromEntries(sourceOptions.map((option) => [option.key, true]));
+  });
+
+  useEffect(() => {
+    fetch("/api/events/recent")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Events returned ${response.status}`);
+        }
+
+        return response.json() as Promise<{ ok: boolean; events: LiveEvent[] }>;
+      })
+      .then((data) => setEvents(data.events.slice(-300)))
+      .catch(() => setStatus("disconnected"));
+
+    const source = new EventSource("/api/events/stream");
+    source.onopen = () => setStatus("live");
+    source.onerror = () => setStatus("disconnected");
+    source.onmessage = (event) => {
+      const liveEvent = JSON.parse(event.data) as LiveEvent;
+      setEvents((current) => [...current, liveEvent].slice(-300));
+      setStatus("live");
+    };
+
+    return () => source.close();
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("sms-gateway:event-console-filters", JSON.stringify(enabledSources));
+  }, [enabledSources]);
+
+  const allowedSources = new Set(
+    sourceOptions.flatMap((option) => enabledSources[option.key] ? option.value : []),
+  );
+  const filteredEvents = events.filter((event) => allowedSources.has(event.source));
+
+  function toggleFilter(key: string) {
+    setEnabledSources((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }
+
+  return (
+    <Box
+      sx={{
+        position: "fixed",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: (muiTheme) => muiTheme.zIndex.drawer + 1,
+        bgcolor: "#0b1120",
+        color: "#d1d5db",
+        borderTop: "1px solid #1f2937",
+        boxShadow: "0 -8px 24px rgba(15, 23, 42, 0.35)",
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={2}
+        alignItems="center"
+        onClick={() => setExpanded((value) => !value)}
+        sx={{
+          height: 44,
+          px: 2,
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+          Event Console
+        </Typography>
+        <Chip
+          size="small"
+          label={`${events.length} recent`}
+          sx={{ bgcolor: "#111827", color: "#d1d5db" }}
+        />
+        <Chip
+          size="small"
+          label={status}
+          color={status === "live" ? "success" : status === "connecting" ? "warning" : "error"}
+          variant="outlined"
+        />
+        <Box sx={{ flexGrow: 1 }} />
+        <Button size="small" sx={{ color: "#d1d5db" }}>
+          {expanded ? "Collapse" : "Expand"}
+        </Button>
+      </Stack>
+
+      {expanded && (
+        <Box sx={{ height: { xs: 360, md: 420 }, borderTop: "1px solid #1f2937" }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ px: 2, py: 1, flexWrap: "wrap", gap: 1 }}
+            alignItems="center"
+          >
+            {sourceOptions.map((option) => (
+              <FormControlLabel
+                key={option.key}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={enabledSources[option.key] ?? true}
+                    onChange={() => toggleFilter(option.key)}
+                    sx={{ color: "#9ca3af", p: 0.5 }}
+                  />
+                }
+                label={option.label}
+                sx={{
+                  m: 0,
+                  color: "#d1d5db",
+                  ".MuiFormControlLabel-label": {
+                    fontSize: 13,
+                    fontFamily: "monospace",
+                  },
+                }}
+              />
+            ))}
+          </Stack>
+          <Box
+            sx={{
+              height: "calc(100% - 49px)",
+              overflowY: "auto",
+              px: 2,
+              pb: 2,
+              fontFamily: "monospace",
+              fontSize: 13,
+            }}
+          >
+            {filteredEvents.length === 0 ? (
+              <Typography sx={{ color: "#6b7280", fontFamily: "monospace", py: 2 }}>
+                No events in the current filter.
+              </Typography>
+            ) : (
+              filteredEvents.map((event) => <EventRow key={event.id} event={event} />)
+            )}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function EventRow({ event }: { event: LiveEvent }) {
+  const sourceColor = sourceColors[event.source];
+  const severityColor = event.severity === "error" ? "#f87171" : sourceColor;
+
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="baseline"
+      sx={{
+        py: 0.75,
+        borderBottom: "1px solid rgba(31, 41, 55, 0.75)",
+        color: "#d1d5db",
+      }}
+    >
+      <Typography sx={{ color: "#6b7280", minWidth: 82, fontFamily: "monospace", fontSize: 12 }}>
+        {new Date(event.timestamp).toLocaleTimeString()}
+      </Typography>
+      <Typography
+        sx={{
+          color: sourceColor,
+          border: `1px solid ${sourceColor}`,
+          borderRadius: 1,
+          px: 0.75,
+          minWidth: 74,
+          textAlign: "center",
+          fontFamily: "monospace",
+          fontSize: 12,
+        }}
+      >
+        {sourceLabels[event.source]}
+      </Typography>
+      <Typography sx={{ color: severityColor, minWidth: 92, fontFamily: "monospace", fontSize: 12 }}>
+        {event.eventType}
+      </Typography>
+      <Typography sx={{ color: "#f9fafb", fontFamily: "monospace", fontSize: 13 }}>
+        {event.title}
+        {event.message ? ` - ${event.message}` : ""}
+      </Typography>
+    </Stack>
   );
 }
 

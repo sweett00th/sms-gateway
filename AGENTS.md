@@ -23,6 +23,9 @@ Current durable architecture decisions:
 - Local auth uses username/password credentials, PBKDF2 password hashes, HttpOnly cookies, and server-side sessions stored in SQLite.
 - Initial admin bootstrap uses `ADMIN_USERNAME` and `ADMIN_PASSWORD` only when no users exist. Never create a hardcoded default admin password, and never log passwords.
 - Do not add SSO, OAuth, Auth0, Google login, or any third-party identity provider.
+- The Event Console is intentionally ephemeral and in-memory only. Do not add an events table, event migrations, or persistent event logging unless explicitly requested.
+- External services push live events into `sms-gateway` through webhook endpoints or scripts. Do not poll Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, or other app APIs for the Event Console unless explicitly requested.
+- `tools/mock-events.ts` is a local development helper that posts synthetic events into webhook endpoints. Keep it dev-only; it is not production polling or event ingestion logic.
 - Internal port defaults to `3020`.
 - Keep the app LAN-only. Do not assume public proxying, Cloudflare, or NPM.
 - Secrets must be configured through environment variables in Unraid and must not be committed.

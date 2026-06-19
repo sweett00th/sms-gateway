@@ -1,0 +1,2 @@
+[0m[32mTask[0m [0m[36mstart[0m deno run --env-file=.env --allow-env --allow-net --allow-read=.,/data --allow-write=.,/data server/main.ts
+Listening on http://localhost:3130/

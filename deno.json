@@ -2,8 +2,11 @@
   "tasks": {
     "dev:server": "deno run --env-file=.env --watch --allow-env --allow-net --allow-read=.,/data --allow-write=.,/data server/main.ts",
     "dev:client": "npm --prefix client run dev",
+    "mock:events": "deno run --env-file=.env --allow-env --allow-net tools/mock-events.ts",
+    "mock:events:once": "deno run --env-file=.env --allow-env --allow-net tools/mock-events.ts --once",
     "build:client": "npm --prefix client run build",
     "dev": "deno task dev:server & deno task dev:client",
+    "dev:mock": "deno task dev:server & deno task dev:client & deno task mock:events",
     "start": "deno run --env-file=.env --allow-env --allow-net --allow-read=.,/data --allow-write=.,/data server/main.ts",
     "check": "deno check server/main.ts",
     "fmt": "deno fmt server/**/*.ts deno.json"

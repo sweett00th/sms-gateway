@@ -44,6 +44,28 @@ export function getCookieSecure(): boolean {
   return getEnv("COOKIE_SECURE") === "true";
 }
 
+export function getEventBufferMinutes(): number {
+  const rawValue = getEnv("EVENT_BUFFER_MINUTES");
+  const minutes = rawValue ? Number(rawValue) : 10;
+
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+    throw new Error(`Invalid EVENT_BUFFER_MINUTES value: ${rawValue}`);
+  }
+
+  return minutes;
+}
+
+export function getEventBufferMax(): number {
+  const rawValue = getEnv("EVENT_BUFFER_MAX");
+  const max = rawValue ? Number(rawValue) : 250;
+
+  if (!Number.isInteger(max) || max < 1 || max > 5000) {
+    throw new Error(`Invalid EVENT_BUFFER_MAX value: ${rawValue}`);
+  }
+
+  return max;
+}
+
 export function getEnvironment(): string {
   return getEnv("DENO_ENV") || getEnv("NODE_ENV") || "production";
 }

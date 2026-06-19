@@ -1,0 +1,10 @@
+Applied database migration 1: initial_persistence_and_auth
+Initial admin user 'admin' created.
+SQLite database ready at .smoke-events/sms-gateway.db
+GET /health 200 1ms
+GET /api/events/recent 401 0ms
+POST /api/auth/login 200 43ms
+GET /api/events/recent 200 7ms
+{"event":"webhook.test.received","receivedAt":"2026-06-19T14:02:22.778Z","summary":{"type":"object","keys":["title","message","token","eventType"],"sizeBytes":89}}
+POST /webhook/test 200 3ms
+GET /api/events/recent 200 27ms

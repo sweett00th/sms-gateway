@@ -10,6 +10,7 @@ No Twilio sending is implemented yet.
 - Frontend: Vite + React + TypeScript + Material UI
 - Persistence: single local SQLite database
 - Auth: local username/password with server-side SQLite sessions
+- Live events: ephemeral in-memory Event Console streamed with Server-Sent Events
 - Production: one Docker container
 - Image: `ghcr.io/sweett00th/sms-gateway`
 - Unraid template: `templates/sms-gateway.xml`
@@ -34,6 +35,12 @@ Start the frontend:
 
 ```powershell
 deno task dev:client
+```
+
+Run the backend, frontend, and a local mock event stream together:
+
+```powershell
+deno task dev:mock
 ```
 
 Build the frontend:
@@ -76,7 +83,10 @@ npm --prefix client run typecheck
 - `POST /api/auth/login` creates a server-side session and sets an HttpOnly cookie.
 - `POST /api/auth/logout` deletes the current session and clears the cookie.
 - `GET /api/admin/overview` returns SQLite-backed dashboard counts and provider configuration status. It requires login.
-- `POST /webhook/test` accepts JSON, logs a summary, and returns the summary. It does not send SMS.
+- `GET /api/events/recent` returns current in-memory Event Console events. It requires login.
+- `GET /api/events/stream` streams live Event Console events with Server-Sent Events. It requires login.
+- `POST /webhook/test` accepts JSON, logs a summary, emits a live test event, and returns the summary. It does not send SMS.
+- `POST /webhook/jellyfin`, `/webhook/seerr`, `/webhook/radarr`, `/webhook/sonarr`, and `/webhook/sabnzbd` accept JSON and emit normalized live events. They do not send SMS.
 
 Unknown `/api/*` and `/webhook/*` routes return JSON 404 responses. Unknown non-API routes fall back to the React `index.html` for future client-side routing.
 
@@ -89,6 +99,47 @@ x-sms-secret: your-secret
 ```
 
 If `SHARED_SECRET` is unset, webhook requests are allowed and the server logs a startup warning. Set it in Unraid for normal use.
+
+## Event Console
+
+The authenticated dashboard includes a collapsible terminal-like Event Console fixed to the bottom of the viewport. It shows recent webhook events and streams new events live with Server-Sent Events from `/api/events/stream`.
+
+Events are intentionally ephemeral and in-memory only:
+
+- No events are written to SQLite.
+- No Event Console migrations or event tables are created.
+- Events are lost when the container restarts.
+- The server keeps only a short runtime ring buffer.
+
+The default ring buffer keeps events from the last `10` minutes and caps the list at `250` events. Override those with:
+
+```env
+EVENT_BUFFER_MINUTES=10
+EVENT_BUFFER_MAX=250
+```
+
+External apps still need to be configured to push webhooks into this app. This feature does not poll Jellyfin, Jellyseerr/Seerr, Radarr, Sonarr, SABnzbd, or any other app API.
+
+The console supports source filters for Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and System/Test. Webhook payloads are normalized into compact events and obvious secret-looking fields such as tokens, passwords, API keys, and authorization headers are redacted from event summaries.
+
+For local development, the repo includes a mock webhook event generator. It posts synthetic Jellyfin, Seerr, Radarr, Sonarr, SABnzbd, and test events into the same webhook endpoints external apps use:
+
+```powershell
+deno task mock:events
+```
+
+Send one event and exit:
+
+```powershell
+deno task mock:events:once
+```
+
+The tool reads `.env`, sends `SHARED_SECRET` as `x-sms-secret` when set, and defaults to `http://localhost:$PORT`. Optional local knobs:
+
+```env
+WEBHOOK_BASE_URL=http://localhost:3020
+MOCK_EVENT_INTERVAL_MS=2500
+```
 
 ## SQLite Persistence
 
@@ -145,7 +196,17 @@ Log in from the React UI at `http://localhost:3020/`, or use the API and keep th
 ```powershell
 curl -Method POST http://localhost:3020/webhook/test `
   -ContentType "application/json" `
+  -Headers @{ "x-sms-secret" = "your-secret" } `
   -Body '{"source":"manual","message":"hello from curl"}'
+```
+
+Example source webhooks:
+
+```powershell
+curl -Method POST http://localhost:3020/webhook/radarr `
+  -ContentType "application/json" `
+  -Headers @{ "x-sms-secret" = "your-secret" } `
+  -Body '{"eventType":"MovieDownloaded","movie":{"title":"Example Movie"},"message":"Download complete"}'
 ```
 
 ## Docker
@@ -167,6 +228,8 @@ docker run --rm -p 3020:3020 `
   -e ADMIN_PASSWORD=change-me `
   -e SESSION_TTL_DAYS=7 `
   -e COOKIE_SECURE=false `
+  -e EVENT_BUFFER_MINUTES=10 `
+  -e EVENT_BUFFER_MAX=250 `
   -v ${PWD}\.data:/data `
   sms-gateway
 ```
@@ -232,6 +295,10 @@ Copy `.env.example` for local reference only. In Unraid, set values through the 
 | `ADMIN_PASSWORD` | Bootstrap | Initial admin password used only when no users exist. No safe default; set in Unraid before first start. |
 | `SESSION_TTL_DAYS` | No | Server-side session lifetime in days. Defaults to `7`. |
 | `COOKIE_SECURE` | No | Adds the Secure cookie flag when `true`. Keep `false` for LAN HTTP. |
+| `EVENT_BUFFER_MINUTES` | No | In-memory Event Console retention window in minutes. Defaults to `10`. |
+| `EVENT_BUFFER_MAX` | No | Maximum in-memory Event Console event count. Defaults to `250`. |
+| `WEBHOOK_BASE_URL` | Dev only | Mock event generator target URL. Defaults to `http://localhost:$PORT`. |
+| `MOCK_EVENT_INTERVAL_MS` | Dev only | Mock event generator interval. Defaults to `2500`. |
 | `SHARED_SECRET` | Recommended | Optional webhook secret checked against the `x-sms-secret` header. Set this in Unraid. |
 | `TWILIO_ACCOUNT_SID` | Future | Placeholder for Twilio configuration. Used only to report whether provider settings appear configured. |
 | `TWILIO_AUTH_TOKEN` | Future | Placeholder for Twilio configuration. No SMS is sent. |
