@@ -27,8 +27,16 @@ export type TextbeltStatusResult =
   }
   | { kind: "failed"; error: string; response?: Record<string, unknown> };
 
+export type TextbeltSendOptions = {
+  replyWebhookUrl?: string;
+};
+
 export interface TextbeltClient {
-  sendSms(phoneNumber: string, message: string): Promise<TextbeltSendResult>;
+  sendSms(
+    phoneNumber: string,
+    message: string,
+    options?: TextbeltSendOptions,
+  ): Promise<TextbeltSendResult>;
   getStatus(textId: string): Promise<TextbeltStatusResult>;
 }
 
@@ -42,7 +50,11 @@ export function createTextbeltClient(): TextbeltClient {
 }
 
 class RealTextbeltClient implements TextbeltClient {
-  async sendSms(phoneNumber: string, message: string): Promise<TextbeltSendResult> {
+  async sendSms(
+    phoneNumber: string,
+    message: string,
+    options: TextbeltSendOptions = {},
+  ): Promise<TextbeltSendResult> {
     const key = getTextbeltKey();
     if (!key) {
       throw new TextbeltConfigurationError("TEXTBELT_KEY is required for SMS dispatch");
@@ -56,6 +68,9 @@ class RealTextbeltClient implements TextbeltClient {
     const sender = getTextbeltSender();
     if (sender) {
       body.set("sender", sender);
+    }
+    if (options.replyWebhookUrl) {
+      body.set("replyWebhookUrl", options.replyWebhookUrl);
     }
 
     try {

@@ -122,6 +122,10 @@ export function isProviderConfigured(): boolean {
   return notificationsEnabled() && isTextbeltConfigured();
 }
 
+export function getWebhookBaseUrl(): string | undefined {
+  const value = getEnv("WEBHOOK_BASE_URL");
+  return value ? value.replace(/\/+$/, "") : undefined;
+}
 export function getSharedSecret(): string | undefined {
   return getEnv("SHARED_SECRET");
 }

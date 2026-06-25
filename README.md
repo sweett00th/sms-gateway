@@ -1,4 +1,4 @@
-# ObservaRR
+﻿# ObservaRR
 
 Internal Unraid Docker app for receiving home server webhooks, managing future notification recipient profiles, and later sending notifications. The app runs a Deno/Hono backend, a Vite React admin panel, local SQLite persistence, local username/password auth, Docker packaging, GHCR publishing, and an Unraid template.
 
@@ -226,8 +226,8 @@ Textbelt is the only SMS provider. Real SMS requires all of these:
 - `NOTIFICATIONS_ENABLED=true`
 - `TEXTBELT_KEY` configured server-side
 - an enabled notification profile
-- a valid phone number
-- explicit profile SMS opt-in recorded in ObservaRR
+- an enabled profile phone number
+- explicit phone-number SMS opt-in recorded in ObservaRR
 - profile event preference enabled with SMS selected
 - a valid global SMS template for that source/event
 
@@ -251,7 +251,19 @@ not_applicable, unknown, sending, sent, delivered, failed
 
 `submitted` or `sent` does not guarantee handset delivery. A background in-process poller checks recent Textbelt message IDs every 10 minutes and updates delivery status when Textbelt reports progress.
 
-Receipts never store the Textbelt API key, raw webhook payloads, unmasked phone numbers, email addresses, authorization headers, or provider request bodies.
+Receipts never store the Textbelt API key, raw webhook payloads, unmasked phone numbers, email addresses, authorization headers, or provider request bodies. Receipts are linked to the profile phone-number row that was used for dispatch when available.
+
+### Textbelt reply webhooks and SMS opt-in
+
+ObservaRR exposes `POST /webhook/textbelt/reply` for Textbelt SMS replies. Textbelt sends reply JSON with `fromNumber` and `text`; ObservaRR matches the sender to a profile phone number, stores the reply text, and marks the number opted in when the response contains consent language such as `Y`, `Yes`, `OK`, `okay`, `confirmed`, `agree`, `start`, or `subscribe`. Stop/unsubscribe style replies mark the number opted out.
+
+Opt-in welcome texts are never sent automatically. An admin must explicitly send the opt-in text for one phone number or all unsent phone numbers on a profile. `WEBHOOK_BASE_URL` must be reachable by Textbelt for reply handling; ObservaRR passes `${WEBHOOK_BASE_URL}/webhook/textbelt/reply` as Textbelt's `replyWebhookUrl` on opt-in welcome messages.
+
+Profiles can store multiple phone numbers. Each number has its own enabled flag, opt-in lifecycle, last reply, and linked receipts. Imported profiles remain unsubscribed until an admin adds a phone number and sends an opt-in welcome text.
+
+### Media interests
+
+Profiles now have a normalized media-interest table for future subscription management. The default is zero movie or series interests, so media notifications are gated until an enabled profile media interest matches the event's identified media. ObservaRR uses TMDB IDs when available, including Seerr `media.tmdbId`, Radarr/Sonarr payload IDs, and Jellyfin `Provider_tmdb`. Jellyfin `SeriesId` is retained so orphan Season `ItemAdded` events can later be associated with the Series `ItemAdded` event that contains TMDB metadata. SABnzbd events fall back to title/year matching through the existing media timeline identity logic.
 ## Jellyfin Profile Import
 
 Jellyfin import is optional and requires these server-only environment variables:
@@ -438,7 +450,7 @@ Copy `.env.example` for local reference only. In Unraid, set values through the 
 | `EVENT_BUFFER_MINUTES` | No | In-memory Event Console retention window in minutes. Defaults to `10`. |
 | `EVENT_BUFFER_MAX` | No | Maximum in-memory Event Console event count. Defaults to `250`. |
 | `EVENT_RAW_MAX_BYTES` | No | Maximum sanitized raw payload bytes included per in-memory event. Defaults to `20000`. |
-| `WEBHOOK_BASE_URL` | Dev only | Mock event generator target URL. Defaults to `http://localhost:$PORT`. |
+| `WEBHOOK_BASE_URL` | Textbelt replies/dev | Base URL used by dev helpers and Textbelt opt-in replies. Textbelt must be able to reach `${WEBHOOK_BASE_URL}/webhook/textbelt/reply`. |
 | `MOCK_EVENT_INTERVAL_MS` | Dev only | Mock event generator interval. Defaults to `2500`. |
 | `SHARED_SECRET` | Recommended | Optional webhook secret checked against the `x-sms-secret` header. Set this in Unraid. |
 | `NOTIFICATIONS_ENABLED` | No | Defaults to `false`. Must be `true` before any real SMS can be sent. |
@@ -448,3 +460,5 @@ Copy `.env.example` for local reference only. In Unraid, set values through the 
 | `JELLYFIN_API_KEY` | Import only | Secret Jellyfin API key used only by the server for profile import. |
 
 Do not commit real secrets. Textbelt keys must never be committed. Twilio is no longer supported. Email templates are stored, but email transport is not implemented.
+
+

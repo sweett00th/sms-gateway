@@ -15,6 +15,9 @@ export type MediaTimeline = {
   imdbId: string | null;
   tvdbId: string | null;
   thumbnailUrl: string | null;
+  jellyfinItemId: string | null;
+  jellyfinSeriesId: string | null;
+  year: string | null;
   sourceFirstSeen: string | null;
   lifecycleStatus: string;
   availableAt: string | null;
@@ -43,7 +46,7 @@ export type MediaTimelineEvent = {
 export function listMediaTimelines(db: Database): MediaTimeline[] {
   return [...db.query(`
     SELECT mi.id, mi.media_key, mi.title, mi.normalized_title, mi.media_type,
-      mi.tmdb_id, mi.imdb_id, mi.tvdb_id, mi.thumbnail_url, mi.source_first_seen, mi.lifecycle_status,
+      mi.tmdb_id, mi.imdb_id, mi.tvdb_id, mi.thumbnail_url, mi.jellyfin_item_id, mi.jellyfin_series_id, mi.year, mi.source_first_seen, mi.lifecycle_status,
       mi.available_at, mi.cleanup_after, mi.created_at, mi.updated_at,
       COUNT(me.id) AS event_count,
       MIN(me.timestamp) AS first_event_at,
@@ -56,9 +59,11 @@ export function listMediaTimelines(db: Database): MediaTimeline[] {
 }
 
 export function getMediaTimeline(db: Database, id: number): MediaTimeline | null {
-  const row = firstRow(db, `
+  const row = firstRow(
+    db,
+    `
     SELECT mi.id, mi.media_key, mi.title, mi.normalized_title, mi.media_type,
-      mi.tmdb_id, mi.imdb_id, mi.tvdb_id, mi.thumbnail_url, mi.source_first_seen, mi.lifecycle_status,
+      mi.tmdb_id, mi.imdb_id, mi.tvdb_id, mi.thumbnail_url, mi.jellyfin_item_id, mi.jellyfin_series_id, mi.year, mi.source_first_seen, mi.lifecycle_status,
       mi.available_at, mi.cleanup_after, mi.created_at, mi.updated_at,
       COUNT(me.id) AS event_count,
       MIN(me.timestamp) AS first_event_at,
@@ -67,12 +72,17 @@ export function getMediaTimeline(db: Database, id: number): MediaTimeline | null
     LEFT JOIN media_events me ON me.media_item_id = mi.id
     WHERE mi.id = ?
     GROUP BY mi.id
-  `, [id]);
+  `,
+    [id],
+  );
 
   return row ? mapMediaTimeline(row) : null;
 }
 
-export function getMediaTimelineByLiveEventId(db: Database, liveEventId: string): MediaTimeline | null {
+export function getMediaTimelineByLiveEventId(
+  db: Database,
+  liveEventId: string,
+): MediaTimeline | null {
   const row = firstRow(
     db,
     "SELECT media_item_id FROM media_events WHERE live_event_id = ? ORDER BY id DESC LIMIT 1",
@@ -83,13 +93,16 @@ export function getMediaTimelineByLiveEventId(db: Database, liveEventId: string)
 }
 
 export function listMediaTimelineEvents(db: Database, mediaItemId: number): MediaTimelineEvent[] {
-  return [...db.query(`
+  return [...db.query(
+    `
     SELECT id, media_item_id, live_event_id, timestamp, source, event_type,
       severity, title, message, raw_payload, created_at
     FROM media_events
     WHERE media_item_id = ?
     ORDER BY timestamp ASC, id ASC
-  `, [mediaItemId])].map(mapTimelineEvent);
+  `,
+    [mediaItemId],
+  )].map(mapTimelineEvent);
 }
 
 export function persistMediaEvent(db: Database, event: LiveEvent): MediaTimeline | null {
@@ -138,7 +151,9 @@ function findOrCreateMediaTimeline(db: Database, event: LiveEvent): number | nul
     return findLooseMediaTimelineMatch(db, event);
   }
 
-  const exact = firstRow(db, "SELECT id FROM media_items WHERE media_key = ?", [identity.mediaKey]);
+  const exact =
+    firstRow(db, "SELECT id FROM media_items WHERE media_key = ?", [identity.mediaKey]) ||
+    findByJellyfinIdentity(db, identity.jellyfinItemId, identity.jellyfinSeriesId);
 
   if (exact) {
     updateMediaMetadata(db, Number(exact[0]), event, identity);
@@ -153,30 +168,64 @@ function findOrCreateMediaTimeline(db: Database, event: LiveEvent): number | nul
   }
 
   const now = new Date().toISOString();
-  db.query(`
+  db.query(
+    `
     INSERT INTO media_items (
-      media_key, title, normalized_title, media_type, tmdb_id, imdb_id, tvdb_id, thumbnail_url,
+      media_key, title, normalized_title, media_type, tmdb_id, imdb_id, tvdb_id, thumbnail_url, jellyfin_item_id, jellyfin_series_id, year,
       source_first_seen, lifecycle_status, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
-  `, [
-    identity.mediaKey,
-    identity.title,
-    identity.normalizedTitle,
-    identity.mediaType,
-    identity.tmdbId,
-    identity.imdbId,
-    identity.tvdbId,
-    identity.thumbnailUrl,
-    event.source,
-    now,
-    now,
-  ]);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `,
+    [
+      identity.mediaKey,
+      identity.title,
+      identity.normalizedTitle,
+      identity.mediaType,
+      identity.tmdbId,
+      identity.imdbId,
+      identity.tvdbId,
+      identity.thumbnailUrl,
+      identity.jellyfinItemId,
+      identity.jellyfinSeriesId,
+      identity.year,
+      event.source,
+      now,
+      now,
+    ],
+  );
 
   const row = firstRow(db, "SELECT id FROM media_items WHERE media_key = ?", [identity.mediaKey]);
   return row ? Number(row[0]) : null;
 }
 
+function findByJellyfinIdentity(
+  db: Database,
+  jellyfinItemId: string | null,
+  jellyfinSeriesId: string | null,
+): unknown[] | null {
+  if (jellyfinItemId) {
+    const item = firstRow(
+      db,
+      "SELECT id FROM media_items WHERE jellyfin_item_id = ? OR jellyfin_series_id = ?",
+      [
+        jellyfinItemId,
+        jellyfinItemId,
+      ],
+    );
+    if (item) return item;
+  }
+  if (jellyfinSeriesId) {
+    return firstRow(
+      db,
+      "SELECT id FROM media_items WHERE jellyfin_series_id = ? OR jellyfin_item_id = ?",
+      [
+        jellyfinSeriesId,
+        jellyfinSeriesId,
+      ],
+    );
+  }
+  return null;
+}
 function updateMediaMetadata(
   db: Database,
   mediaItemId: number,
@@ -184,9 +233,14 @@ function updateMediaMetadata(
   identity: NonNullable<ReturnType<typeof identifyMedia>>,
 ): void {
   const current = getMediaTimeline(db, mediaItemId);
-  const shouldReplaceTitle = shouldUpdateCanonicalTitle(current?.title ?? "", identity.title, event.source);
+  const shouldReplaceTitle = shouldUpdateCanonicalTitle(
+    current?.title ?? "",
+    identity.title,
+    event.source,
+  );
 
-  db.query(`
+  db.query(
+    `
     UPDATE media_items
     SET title = CASE WHEN ? THEN ? ELSE title END,
       normalized_title = CASE WHEN ? THEN ? ELSE normalized_title END,
@@ -195,26 +249,38 @@ function updateMediaMetadata(
       imdb_id = COALESCE(?, imdb_id),
       tvdb_id = COALESCE(?, tvdb_id),
       thumbnail_url = COALESCE(?, thumbnail_url),
+      jellyfin_item_id = COALESCE(?, jellyfin_item_id),
+      jellyfin_series_id = COALESCE(?, jellyfin_series_id),
+      year = COALESCE(?, year),
       source_first_seen = COALESCE(source_first_seen, ?),
       updated_at = ?
     WHERE id = ?
-  `, [
-    shouldReplaceTitle ? 1 : 0,
-    identity.title,
-    shouldReplaceTitle ? 1 : 0,
-    identity.normalizedTitle,
-    identity.mediaType,
-    identity.tmdbId,
-    identity.imdbId,
-    identity.tvdbId,
-    identity.thumbnailUrl,
-    event.source,
-    new Date().toISOString(),
-    mediaItemId,
-  ]);
+  `,
+    [
+      shouldReplaceTitle ? 1 : 0,
+      identity.title,
+      shouldReplaceTitle ? 1 : 0,
+      identity.normalizedTitle,
+      identity.mediaType,
+      identity.tmdbId,
+      identity.imdbId,
+      identity.tvdbId,
+      identity.thumbnailUrl,
+      identity.jellyfinItemId,
+      identity.jellyfinSeriesId,
+      identity.year,
+      event.source,
+      new Date().toISOString(),
+      mediaItemId,
+    ],
+  );
 }
 
-function shouldUpdateCanonicalTitle(currentTitle: string, candidateTitle: string, source: string): boolean {
+function shouldUpdateCanonicalTitle(
+  currentTitle: string,
+  candidateTitle: string,
+  source: string,
+): boolean {
   if (!currentTitle) {
     return true;
   }
@@ -246,7 +312,9 @@ function findLooseMediaTimelineMatch(db: Database, event: LiveEvent): number | n
   }));
 
   const match = candidates
-    .filter((candidate) => candidate.title.length >= 3 && titleAppearsInText(candidate.title, haystack))
+    .filter((candidate) =>
+      candidate.title.length >= 3 && titleAppearsInText(candidate.title, haystack)
+    )
     .sort((left, right) => right.title.length - left.title.length)[0];
 
   return match?.id ?? null;
@@ -264,44 +332,52 @@ function persistTimelineEvent(db: Database, mediaItemId: number, event: LiveEven
   }
 
   const now = new Date().toISOString();
-  db.query(`
+  db.query(
+    `
     INSERT INTO media_events (
       media_item_id, live_event_id, timestamp, source, event_type,
       severity, title, message, raw_payload, created_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
-    mediaItemId,
-    event.id,
-    event.timestamp,
-    event.source,
-    event.eventType,
-    event.severity,
-    event.title,
-    event.message,
-    JSON.stringify(event.rawPayload ?? event.rawSummary ?? null),
-    now,
-  ]);
+  `,
+    [
+      mediaItemId,
+      event.id,
+      event.timestamp,
+      event.source,
+      event.eventType,
+      event.severity,
+      event.title,
+      event.message,
+      JSON.stringify(event.rawPayload ?? event.rawSummary ?? null),
+      now,
+    ],
+  );
   db.query("UPDATE media_items SET updated_at = ? WHERE id = ?", [now, mediaItemId]);
 }
 
 function markMediaAvailable(db: Database, mediaItemId: number, timestamp: string): void {
   const availableAt = new Date(timestamp);
-  const cleanupAfter = new Date(availableAt.getTime() + retentionDaysAfterAvailable * 24 * 60 * 60 * 1000);
+  const cleanupAfter = new Date(
+    availableAt.getTime() + retentionDaysAfterAvailable * 24 * 60 * 60 * 1000,
+  );
 
-  db.query(`
+  db.query(
+    `
     UPDATE media_items
     SET lifecycle_status = 'available',
       available_at = ?,
       cleanup_after = ?,
       updated_at = ?
     WHERE id = ?
-  `, [
-    availableAt.toISOString(),
-    cleanupAfter.toISOString(),
-    new Date().toISOString(),
-    mediaItemId,
-  ]);
+  `,
+    [
+      availableAt.toISOString(),
+      cleanupAfter.toISOString(),
+      new Date().toISOString(),
+      mediaItemId,
+    ],
+  );
 }
 
 function isMediaAvailableEvent(event: LiveEvent): boolean {
@@ -328,15 +404,18 @@ function mapMediaTimeline(row: unknown[]): MediaTimeline {
     imdbId: row[6] === null ? null : String(row[6]),
     tvdbId: row[7] === null ? null : String(row[7]),
     thumbnailUrl: row[8] === null ? null : String(row[8]),
-    sourceFirstSeen: row[9] === null ? null : String(row[9]),
-    lifecycleStatus: String(row[10]),
-    availableAt: row[11] === null ? null : String(row[11]),
-    cleanupAfter: row[12] === null ? null : String(row[12]),
-    createdAt: String(row[13]),
-    updatedAt: String(row[14]),
-    eventCount: Number(row[15]),
-    firstEventAt: row[16] === null ? null : String(row[16]),
-    lastEventAt: row[17] === null ? null : String(row[17]),
+    jellyfinItemId: row[9] === null ? null : String(row[9]),
+    jellyfinSeriesId: row[10] === null ? null : String(row[10]),
+    year: row[11] === null ? null : String(row[11]),
+    sourceFirstSeen: row[12] === null ? null : String(row[12]),
+    lifecycleStatus: String(row[13]),
+    availableAt: row[14] === null ? null : String(row[14]),
+    cleanupAfter: row[15] === null ? null : String(row[15]),
+    createdAt: String(row[16]),
+    updatedAt: String(row[17]),
+    eventCount: Number(row[18]),
+    firstEventAt: row[19] === null ? null : String(row[19]),
+    lastEventAt: row[20] === null ? null : String(row[20]),
   };
 }
 

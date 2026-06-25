@@ -1,6 +1,14 @@
-﻿import type { Database } from "../db/index.ts";
+import type { Database } from "../db/index.ts";
 import { firstRow } from "../db/index.ts";
 import { getAvatarDirectory } from "../lib/config.ts";
+import { listProfileMediaInterests, type ProfileMediaInterest } from "./mediaInterests.ts";
+import {
+  listProfilePhoneNumbers,
+  normalizePhoneNumber as normalizeProfilePhoneNumber,
+  type PhoneNumberInput,
+  type ProfilePhoneNumber,
+  replaceProfilePhoneNumbers,
+} from "./phoneNumbers.ts";
 import { isKnownNotificationEvent } from "./eventCatalog.ts";
 
 export type IdentityProvider = "jellyfin" | "seerr";
@@ -59,6 +67,8 @@ export type ProfileSummary = {
 export type ProfileDetails = NotificationProfile & {
   identities: ProfileIdentity[];
   preferences: ProfilePreference[];
+  phoneNumbers: ProfilePhoneNumber[];
+  mediaInterests: ProfileMediaInterest[];
   contactReadiness: {
     sms: boolean;
     email: boolean;
@@ -71,6 +81,7 @@ export type ProfileInput = {
   phoneNumber?: unknown;
   emailAddress?: unknown;
   smsOptedIn?: unknown;
+  phoneNumbers?: unknown;
   identities?: unknown;
 };
 
@@ -149,8 +160,12 @@ export function getProfileDetails(db: Database, profileId: number): ProfileDetai
     ...profile,
     identities: listIdentities(db, profileId),
     preferences: listPreferences(db, profileId),
+    phoneNumbers: listProfilePhoneNumbers(db, profileId),
+    mediaInterests: listProfileMediaInterests(db, profileId),
     contactReadiness: {
-      sms: Boolean(profile.phoneNumber && profile.smsOptedInAt && !profile.smsOptedOutAt),
+      sms: listProfilePhoneNumbers(db, profileId).some((phone) =>
+        phone.enabled && phone.optInState === "opted_in"
+      ),
       email: Boolean(profile.emailAddress),
     },
   };
@@ -180,6 +195,14 @@ export function createProfile(db: Database, input: ProfileInput): ProfileDetails
     );
 
     const profileId = Number(firstRow(db, "SELECT last_insert_rowid()")?.[0]);
+    if (normalized.phoneNumbers) {
+      replaceProfilePhoneNumbers(db, profileId, normalized.phoneNumbers);
+    } else if (normalized.phoneNumber) {
+      replaceProfilePhoneNumbers(db, profileId, [{
+        phoneNumber: normalized.phoneNumber,
+        enabled: true,
+      }]);
+    }
     upsertIdentityInputs(db, profileId, normalized.identities, now);
     db.execute("COMMIT");
 
@@ -239,6 +262,9 @@ export function updateProfile(
       db.query(`UPDATE notification_profiles SET ${assignments.join(", ")} WHERE id = ?`, params);
     }
 
+    if (normalized.phoneNumbers) {
+      replaceProfilePhoneNumbers(db, profileId, normalized.phoneNumbers);
+    }
     upsertIdentityInputs(db, profileId, normalized.identities, now);
     db.query("UPDATE notification_profiles SET updated_at = ? WHERE id = ?", [now, profileId]);
     db.execute("COMMIT");
@@ -478,6 +504,7 @@ function normalizeProfileInput(input: ProfileInput, options: { requireDisplayNam
     phoneNumber?: string | null;
     emailAddress?: string | null;
     smsOptedIn?: boolean;
+    phoneNumbers?: PhoneNumberInput[];
     identities: Partial<Record<IdentityProvider, NormalizedIdentityInput | null>>;
   } = { identities: {} };
 
@@ -498,11 +525,21 @@ function normalizeProfileInput(input: ProfileInput, options: { requireDisplayNam
   }
 
   if (input.phoneNumber !== undefined) {
-    result.phoneNumber = normalizePhoneNumber(input.phoneNumber);
+    result.phoneNumber =
+      input.phoneNumber === null || input.phoneNumber === undefined || input.phoneNumber === ""
+        ? null
+        : normalizeProfilePhoneNumber(input.phoneNumber);
   }
 
   if (input.emailAddress !== undefined) {
     result.emailAddress = normalizeEmailAddress(input.emailAddress, "Email address");
+  }
+
+  if (input.phoneNumbers !== undefined) {
+    if (!Array.isArray(input.phoneNumbers)) {
+      throw new ValidationError("Phone numbers must be an array");
+    }
+    result.phoneNumbers = input.phoneNumbers as PhoneNumberInput[];
   }
 
   if (input.smsOptedIn !== undefined) {
@@ -782,4 +819,3 @@ function isIdentityProvider(value: string): value is IdentityProvider {
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
-

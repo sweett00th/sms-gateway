@@ -9,6 +9,9 @@ export type MediaIdentity = {
   imdbId: string | null;
   tvdbId: string | null;
   thumbnailUrl: string | null;
+  jellyfinItemId: string | null;
+  jellyfinSeriesId: string | null;
+  year: string | null;
 };
 
 export function identifyMedia(event: LiveEvent): MediaIdentity | null {
@@ -16,7 +19,10 @@ export function identifyMedia(event: LiveEvent): MediaIdentity | null {
   const title = extractTitleFromDownloadName(raw) ||
     event.entityTitle ||
     pickString(raw, ["title", "subject", "name", "Name"]) ||
-    pickNestedString(raw, [["movie", "title"], ["series", "title"], ["episode", "title"]]) ||
+    pickNestedString(raw, [["movie", "title"], ["series", "title"], ["episode", "title"], [
+      "media",
+      "title",
+    ]]) ||
     (event.source === "sabnzbd" ? null : event.title);
 
   if (!title || title.trim().length === 0) {
@@ -24,15 +30,28 @@ export function identifyMedia(event: LiveEvent): MediaIdentity | null {
   }
 
   const mediaType = event.entityType ||
-    pickString(raw, ["entityType", "mediaType", "MediaType", "itemType"]) ||
+    normalizeMediaType(
+      pickString(raw, ["entityType", "mediaType", "MediaType", "itemType", "ItemType"]) ||
+        pickNestedString(raw, [["media", "media_type"]]),
+    ) ||
     inferMediaType(event);
   const tmdbId = pickString(raw, ["tmdbId", "tmdb_id"]) ||
-    pickNestedString(raw, [["movie", "tmdbId"], ["movie", "tmdb_id"]]) || null;
+    pickNestedString(raw, [["movie", "tmdbId"], ["movie", "tmdb_id"], ["media", "tmdbId"], [
+      "media",
+      "tmdb_id",
+    ]]) ||
+    pickString(raw, ["Provider_tmdb", "provider_tmdb"]) || null;
   const imdbId = pickString(raw, ["imdbId", "imdb_id"]) ||
-    pickNestedString(raw, [["movie", "imdbId"], ["series", "imdbId"]]) || null;
+    pickNestedString(raw, [["movie", "imdbId"], ["series", "imdbId"]]) ||
+    pickString(raw, ["Provider_imdb", "provider_imdb"]) || null;
   const tvdbId = pickString(raw, ["tvdbId", "tvdb_id"]) ||
-    pickNestedString(raw, [["series", "tvdbId"], ["series", "tvdb_id"]]) || null;
-  const externalId = tmdbId || imdbId || tvdbId || pickString(raw, ["guid"]);
+    pickNestedString(raw, [["series", "tvdbId"], ["series", "tvdb_id"]]) ||
+    pickString(raw, ["Provider_tvdb", "provider_tvdb"]) || null;
+  const jellyfinItemId = pickString(raw, ["ItemId", "itemId"]);
+  const jellyfinSeriesId = pickString(raw, ["SeriesId", "seriesId"]) ||
+    (mediaType === "series" ? jellyfinItemId : null);
+  const externalId = tmdbId || imdbId || tvdbId || jellyfinSeriesId || jellyfinItemId ||
+    pickString(raw, ["guid"]);
   const year = pickString(raw, ["year", "releaseYear"]) ||
     pickNestedString(raw, [["movie", "year"], ["series", "year"]]) ||
     extractYearFromDownloadName(raw);
@@ -49,6 +68,9 @@ export function identifyMedia(event: LiveEvent): MediaIdentity | null {
     imdbId,
     tvdbId,
     thumbnailUrl: pickThumbnailUrl(raw),
+    jellyfinItemId,
+    jellyfinSeriesId,
+    year: year ?? null,
   };
 }
 
@@ -88,15 +110,23 @@ function pickThumbnailUrl(data: Record<string, unknown>): string | null {
 
   const images = findImageArray(data);
   const image = images.find((item) =>
-    ["poster", "cover", "primary"].includes(String(item.coverType || item.type || "").toLowerCase())
+    ["poster", "cover", "primary"].includes(
+      String(item.coverType || item.type || "").toLowerCase(),
+    )
   ) || images[0];
-  const imageUrl = image ? pickString(image, ["remoteUrl", "url", "imageUrl", "thumbnailUrl"]) : undefined;
+  const imageUrl = image
+    ? pickString(image, ["remoteUrl", "url", "imageUrl", "thumbnailUrl"])
+    : undefined;
 
   return imageUrl && isLikelyImageUrl(imageUrl) ? imageUrl : null;
 }
 
 function findImageArray(data: Record<string, unknown>): Array<Record<string, unknown>> {
-  const candidates = [data["images"], isObject(data["movie"]) ? data["movie"].images : undefined, isObject(data["series"]) ? data["series"].images : undefined];
+  const candidates = [
+    data["images"],
+    isObject(data["movie"]) ? data["movie"].images : undefined,
+    isObject(data["series"]) ? data["series"].images : undefined,
+  ];
 
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
@@ -191,4 +221,12 @@ function pickNestedString(data: Record<string, unknown>, paths: string[][]): str
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeMediaType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  if (normalized === "tv" || normalized === "series" || normalized === "season") return "series";
+  if (normalized === "movie") return "movie";
+  return value;
 }

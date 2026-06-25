@@ -3,6 +3,8 @@ import type { Database } from "../db/index.ts";
 import { eventBus, type EventSourceName, normalizeWebhookEvent } from "../events/eventBus.ts";
 import { getSharedSecret } from "../lib/config.ts";
 import { dispatchNotificationsForEvent } from "../notifications/dispatchNotifications.ts";
+import { subscribeRequesterToSeerrMedia } from "../notifications/mediaInterests.ts";
+import { recordTextbeltReply } from "../notifications/phoneNumbers.ts";
 import { summarizePayload } from "../lib/payload.ts";
 import { persistMediaEvent } from "../tracking/mediaTimelines.ts";
 
@@ -18,6 +20,36 @@ const webhookSources: EventSourceName[] = [
 export function createWebhookRoutes(db: Database): Hono {
   const webhooks = new Hono();
 
+  webhooks.post("/textbelt/reply", async (c) => {
+    const payload = await readJsonPayload(c);
+    if (!payload.ok) {
+      return c.json(payload.body, payload.status);
+    }
+
+    const data = isObject(payload.value) ? payload.value : {};
+    try {
+      const result = recordTextbeltReply(db, {
+        fromNumber: data.fromNumber,
+        text: data.text,
+        raw: data,
+      });
+      console.log(JSON.stringify({
+        event: "textbelt.reply.received",
+        at: new Date().toISOString(),
+        matched: result.matched,
+        interpretedStatus: result.status,
+        profileId: result.phone?.profileId ?? null,
+        phoneNumberId: result.phone?.id ?? null,
+      }));
+      return c.json({ ok: true, matched: result.matched, status: result.status });
+    } catch (error) {
+      return c.json({
+        ok: false,
+        status: "bad_request",
+        error: error instanceof Error ? error.message : "Invalid Textbelt reply",
+      }, 400);
+    }
+  });
   webhooks.use("*", async (c, next) => {
     const sharedSecret = getSharedSecret();
 
@@ -44,13 +76,32 @@ export function createWebhookRoutes(db: Database): Hono {
       }
 
       const event = eventBus.publish(normalizeWebhookEvent(source, payload.value));
-      persistMediaEvent(db, event);
-      const notifications = await dispatchNotificationsForEvent(db, event);
+      const media = persistMediaEvent(db, event);
+      const autoSubscription = subscribeRequesterToSeerrMedia(db, event, media);
+
+      if (source === "seerr") {
+        console.log(JSON.stringify({
+          event: "media_interest.seerr_requester_subscription",
+          at: new Date().toISOString(),
+          liveEventId: event.id,
+          mediaItemId: media?.id ?? null,
+          matched: autoSubscription.matched,
+          created: autoSubscription.created,
+          updated: autoSubscription.updated,
+          profileId: autoSubscription.profileId,
+          reason: autoSubscription.reason ?? null,
+        }));
+      }
+
+      const notifications = await dispatchNotificationsForEvent(db, event, {
+        mediaItemId: media?.id ?? null,
+      });
 
       return c.json({
         ok: true,
         eventId: event.id,
         notifications,
+        autoSubscription,
       });
     });
   }
@@ -142,4 +193,8 @@ async function readJsonPayload(c: Context): Promise<JsonPayloadResult> {
       },
     };
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

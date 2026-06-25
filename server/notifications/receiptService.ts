@@ -27,6 +27,7 @@ export type MessageReceipt = {
   eventTitle: string | null;
   profileId: number | null;
   profileName: string | null;
+  profilePhoneNumberId: number | null;
   channel: string;
   provider: string | null;
   templateId: number | null;
@@ -60,6 +61,7 @@ export function createPendingReceipt(db: Database, input: {
   eventType: string;
   eventTitle: string;
   profileId: number;
+  profilePhoneNumberId?: number | null;
   templateId: number | null;
   templateRevision: number | null;
   renderedBody: string | null;
@@ -72,11 +74,11 @@ export function createPendingReceipt(db: Database, input: {
       `
       INSERT INTO message_receipts (
         event_dedupe_key, event_source, event_type, event_title, profile_id,
-        channel, provider, template_id, template_revision, rendered_body,
+        profile_phone_number_id, channel, provider, template_id, template_revision, rendered_body,
         render_context_json, destination_masked, submission_status, delivery_status,
         attempted_at, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, 'sms', 'textbelt', ?, ?, ?, ?, ?, 'pending', 'unknown', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, 'sms', 'textbelt', ?, ?, ?, ?, ?, 'pending', 'unknown', ?, ?, ?)
     `,
       [
         input.eventDedupeKey,
@@ -84,6 +86,7 @@ export function createPendingReceipt(db: Database, input: {
         input.eventType,
         input.eventTitle,
         input.profileId,
+        input.profilePhoneNumberId ?? null,
         input.templateId,
         input.templateRevision,
         input.renderedBody,
@@ -95,9 +98,7 @@ export function createPendingReceipt(db: Database, input: {
       ],
     );
   } catch (error) {
-    if (String(error).includes("UNIQUE constraint failed")) {
-      return null;
-    }
+    if (String(error).includes("UNIQUE constraint failed")) return null;
     throw error;
   }
   const id = Number(firstRow(db, "SELECT last_insert_rowid()")?.[0]);
@@ -190,54 +191,22 @@ export function listReceipts(db: Database, query: string, limit = 100): MessageR
       OR lower(COALESCE(mr.provider_message_id, '')) LIKE ?`;
   }
   params.push(limit);
-  return [...db.query(
-    `
-    SELECT mr.id, mr.event_dedupe_key, mr.event_source, mr.event_type, mr.event_title,
-      mr.profile_id, np.display_name, mr.channel, mr.provider, mr.template_id, mr.template_revision,
-      mr.rendered_body, mr.render_context_json, mr.destination_masked, mr.provider_message_id,
-      mr.submission_status, mr.delivery_status, mr.provider_error, mr.provider_response_json,
-      mr.quota_remaining, mr.attempted_at, mr.submitted_at, mr.last_status_check_at,
-      mr.delivered_at, mr.created_at, mr.updated_at
-    FROM message_receipts mr
-    LEFT JOIN notification_profiles np ON np.id = mr.profile_id
-    ${where}
-    ORDER BY mr.created_at DESC, mr.id DESC
-    LIMIT ?
-  `,
-    params,
-  )].map(mapReceipt);
+  return [
+    ...db.query(
+      `${receiptSelectSql()} ${where} ORDER BY mr.created_at DESC, mr.id DESC LIMIT ?`,
+      params,
+    ),
+  ].map(mapReceipt);
 }
 
 export function getReceipt(db: Database, id: number): MessageReceipt | null {
-  const row = firstRow(
-    db,
-    `
-    SELECT mr.id, mr.event_dedupe_key, mr.event_source, mr.event_type, mr.event_title,
-      mr.profile_id, np.display_name, mr.channel, mr.provider, mr.template_id, mr.template_revision,
-      mr.rendered_body, mr.render_context_json, mr.destination_masked, mr.provider_message_id,
-      mr.submission_status, mr.delivery_status, mr.provider_error, mr.provider_response_json,
-      mr.quota_remaining, mr.attempted_at, mr.submitted_at, mr.last_status_check_at,
-      mr.delivered_at, mr.created_at, mr.updated_at
-    FROM message_receipts mr
-    LEFT JOIN notification_profiles np ON np.id = mr.profile_id
-    WHERE mr.id = ?
-  `,
-    [id],
-  );
+  const row = firstRow(db, `${receiptSelectSql()} WHERE mr.id = ?`, [id]);
   return row ? mapReceipt(row) : null;
 }
 
 export function listReceiptsForStatusPolling(db: Database, limit = 20): MessageReceipt[] {
   return [...db.query(
-    `
-    SELECT mr.id, mr.event_dedupe_key, mr.event_source, mr.event_type, mr.event_title,
-      mr.profile_id, np.display_name, mr.channel, mr.provider, mr.template_id, mr.template_revision,
-      mr.rendered_body, mr.render_context_json, mr.destination_masked, mr.provider_message_id,
-      mr.submission_status, mr.delivery_status, mr.provider_error, mr.provider_response_json,
-      mr.quota_remaining, mr.attempted_at, mr.submitted_at, mr.last_status_check_at,
-      mr.delivered_at, mr.created_at, mr.updated_at
-    FROM message_receipts mr
-    LEFT JOIN notification_profiles np ON np.id = mr.profile_id
+    `${receiptSelectSql()}
     WHERE mr.provider = 'textbelt'
       AND mr.provider_message_id IS NOT NULL
       AND mr.delivery_status NOT IN ('delivered', 'failed')
@@ -245,10 +214,36 @@ export function listReceiptsForStatusPolling(db: Database, limit = 20): MessageR
       AND datetime(mr.created_at) >= datetime('now', '-30 days')
       AND (mr.last_status_check_at IS NULL OR datetime(mr.last_status_check_at) <= datetime('now', '-10 minutes'))
     ORDER BY COALESCE(mr.last_status_check_at, mr.created_at) ASC
-    LIMIT ?
-  `,
+    LIMIT ?`,
     [limit],
   )].map(mapReceipt);
+}
+
+export function listReceiptsForProfilePhone(
+  db: Database,
+  profileId: number,
+  phoneNumberId: number,
+  limit = 50,
+): MessageReceipt[] {
+  return [...db.query(
+    `${receiptSelectSql()}
+    WHERE mr.profile_id = ? AND mr.profile_phone_number_id = ?
+    ORDER BY mr.created_at DESC, mr.id DESC
+    LIMIT ?`,
+    [profileId, phoneNumberId, limit],
+  )].map(mapReceipt);
+}
+
+function receiptSelectSql(): string {
+  return `
+    SELECT mr.id, mr.event_dedupe_key, mr.event_source, mr.event_type, mr.event_title,
+      mr.profile_id, np.display_name, mr.profile_phone_number_id, mr.channel, mr.provider,
+      mr.template_id, mr.template_revision, mr.rendered_body, mr.render_context_json,
+      mr.destination_masked, mr.provider_message_id, mr.submission_status, mr.delivery_status,
+      mr.provider_error, mr.provider_response_json, mr.quota_remaining, mr.attempted_at,
+      mr.submitted_at, mr.last_status_check_at, mr.delivered_at, mr.created_at, mr.updated_at
+    FROM message_receipts mr
+    LEFT JOIN notification_profiles np ON np.id = mr.profile_id`;
 }
 
 function updateReceipt(db: Database, receiptId: number, fields: Record<string, SqlValue>): void {
@@ -260,23 +255,15 @@ function updateReceipt(db: Database, receiptId: number, fields: Record<string, S
 }
 
 function sanitizeMetadata(value: unknown): unknown {
-  if (value === null || typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    return value.length > 500 ? `${value.slice(0, 500)}...` : value;
-  }
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map(sanitizeMetadata);
-  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") return value.length > 500 ? `${value.slice(0, 500)}...` : value;
+  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeMetadata);
   if (typeof value === "object" && value) {
     const result: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value).slice(0, 50)) {
-      if (/(key|token|secret|authorization|phone|email|destination)/i.test(key)) {
-        result[key] = "[redacted]";
-      } else {
-        result[key] = sanitizeMetadata(nested);
-      }
+      result[key] = /(key|token|secret|authorization|phone|email|destination)/i.test(key)
+        ? "[redacted]"
+        : sanitizeMetadata(nested);
     }
     return result;
   }
@@ -292,25 +279,26 @@ function mapReceipt(row: unknown[]): MessageReceipt {
     eventTitle: nullableString(row[4]),
     profileId: row[5] === null ? null : Number(row[5]),
     profileName: nullableString(row[6]),
-    channel: String(row[7]),
-    provider: nullableString(row[8]),
-    templateId: row[9] === null ? null : Number(row[9]),
-    templateRevision: row[10] === null ? null : Number(row[10]),
-    renderedBody: nullableString(row[11]),
-    renderContext: parseJson(row[12]),
-    destinationMasked: nullableString(row[13]),
-    providerMessageId: nullableString(row[14]),
-    submissionStatus: String(row[15]) as SubmissionStatus,
-    deliveryStatus: String(row[16]) as DeliveryStatus,
-    providerError: nullableString(row[17]),
-    providerResponse: parseJson(row[18]),
-    quotaRemaining: row[19] === null ? null : Number(row[19]),
-    attemptedAt: String(row[20]),
-    submittedAt: nullableString(row[21]),
-    lastStatusCheckAt: nullableString(row[22]),
-    deliveredAt: nullableString(row[23]),
-    createdAt: String(row[24]),
-    updatedAt: String(row[25]),
+    profilePhoneNumberId: row[7] === null ? null : Number(row[7]),
+    channel: String(row[8]),
+    provider: nullableString(row[9]),
+    templateId: row[10] === null ? null : Number(row[10]),
+    templateRevision: row[11] === null ? null : Number(row[11]),
+    renderedBody: nullableString(row[12]),
+    renderContext: parseJson(row[13]),
+    destinationMasked: nullableString(row[14]),
+    providerMessageId: nullableString(row[15]),
+    submissionStatus: String(row[16]) as SubmissionStatus,
+    deliveryStatus: String(row[17]) as DeliveryStatus,
+    providerError: nullableString(row[18]),
+    providerResponse: parseJson(row[19]),
+    quotaRemaining: row[20] === null ? null : Number(row[20]),
+    attemptedAt: String(row[21]),
+    submittedAt: nullableString(row[22]),
+    lastStatusCheckAt: nullableString(row[23]),
+    deliveredAt: nullableString(row[24]),
+    createdAt: String(row[25]),
+    updatedAt: String(row[26]),
   };
 }
 
@@ -319,9 +307,7 @@ function nullableString(value: unknown): string | null {
 }
 
 function parseJson(value: unknown): unknown {
-  if (value === null) {
-    return null;
-  }
+  if (value === null) return null;
   try {
     return JSON.parse(String(value));
   } catch {

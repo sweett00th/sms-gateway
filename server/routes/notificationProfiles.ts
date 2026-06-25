@@ -12,6 +12,12 @@ import {
   updateProfile,
   ValidationError,
 } from "../notifications/profiles.ts";
+import { listReceiptsForProfilePhone } from "../notifications/receiptService.ts";
+import {
+  getProfilePhoneNumber,
+  sendPendingWelcomeOptInMessages,
+  sendWelcomeOptInMessage,
+} from "../notifications/phoneNumbers.ts";
 
 export function createNotificationProfileRoutes(db: Database): Hono {
   const profiles = new Hono();
@@ -112,6 +118,54 @@ export function createNotificationProfileRoutes(db: Database): Hono {
     }
   });
 
+  profiles.post("/:id/phone-numbers/:phoneId/send-opt-in", async (c) => {
+    const id = parseProfileId(c.req.param("id"));
+    const phoneId = parseProfileId(c.req.param("phoneId"));
+    if (!id || !phoneId) {
+      return c.json({
+        ok: false,
+        status: "bad_request",
+        error: "Invalid profile or phone number id",
+      }, 400);
+    }
+
+    try {
+      const phone = await sendWelcomeOptInMessage(db, id, phoneId);
+      return c.json({ ok: true, phone });
+    } catch (error) {
+      return profileErrorResponse(c, error);
+    }
+  });
+
+  profiles.post("/:id/phone-numbers/send-pending-opt-ins", async (c) => {
+    const id = parseProfileId(c.req.param("id"));
+    if (!id) {
+      return c.json(badProfileId(), 400);
+    }
+
+    try {
+      const result = await sendPendingWelcomeOptInMessages(db, id);
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      return profileErrorResponse(c, error);
+    }
+  });
+
+  profiles.get("/:id/phone-numbers/:phoneId/receipts", (c) => {
+    const id = parseProfileId(c.req.param("id"));
+    const phoneId = parseProfileId(c.req.param("phoneId"));
+    if (!id || !phoneId) {
+      return c.json({
+        ok: false,
+        status: "bad_request",
+        error: "Invalid profile or phone number id",
+      }, 400);
+    }
+    if (!getProfilePhoneNumber(db, id, phoneId)) {
+      return c.json({ ok: false, status: "not_found", error: "Phone number not found" }, 404);
+    }
+    return c.json({ ok: true, receipts: listReceiptsForProfilePhone(db, id, phoneId, 50) });
+  });
   profiles.put("/:id/preferences", async (c) => {
     const id = parseProfileId(c.req.param("id"));
     if (!id) {

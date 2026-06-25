@@ -364,6 +364,79 @@ const migrations: Migration[] = [
       ALTER TABLE notification_profiles ADD COLUMN sms_opted_out_at TEXT;
     `,
   },
+  {
+    version: 7,
+    name: "profile_phone_lifecycle_media_interests",
+    sql: `
+      CREATE TABLE notification_profile_phone_numbers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        phone_number TEXT NOT NULL,
+        label TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        welcome_sent_at TEXT,
+        opted_in_at TEXT,
+        opted_out_at TEXT,
+        last_response_text TEXT,
+        last_response_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES notification_profiles(id) ON DELETE CASCADE,
+        UNIQUE(phone_number)
+      );
+      CREATE INDEX notification_profile_phone_numbers_profile_idx ON notification_profile_phone_numbers(profile_id);
+      CREATE INDEX notification_profile_phone_numbers_dispatch_idx ON notification_profile_phone_numbers(enabled, opted_in_at, opted_out_at);
+      INSERT INTO notification_profile_phone_numbers (profile_id, phone_number, enabled, welcome_sent_at, opted_in_at, opted_out_at, created_at, updated_at)
+      SELECT id, phone_number, enabled, CASE WHEN sms_opted_in_at IS NOT NULL THEN sms_opted_in_at ELSE NULL END, sms_opted_in_at, sms_opted_out_at, created_at, updated_at
+      FROM notification_profiles WHERE phone_number IS NOT NULL AND trim(phone_number) <> '';
+
+      CREATE TABLE textbelt_inbound_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_phone_number_id INTEGER,
+        profile_id INTEGER,
+        from_number_masked TEXT NOT NULL,
+        response_text TEXT NOT NULL,
+        interpreted_status TEXT NOT NULL CHECK (interpreted_status IN ('opted_in', 'opted_out', 'unknown')),
+        raw_json TEXT,
+        received_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (profile_phone_number_id) REFERENCES notification_profile_phone_numbers(id) ON DELETE SET NULL,
+        FOREIGN KEY (profile_id) REFERENCES notification_profiles(id) ON DELETE SET NULL
+      );
+      CREATE INDEX textbelt_inbound_replies_phone_idx ON textbelt_inbound_replies(profile_phone_number_id, received_at);
+
+      CREATE TABLE profile_media_interests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id INTEGER NOT NULL,
+        media_item_id INTEGER,
+        media_type TEXT,
+        tmdb_id TEXT,
+        title TEXT NOT NULL,
+        year TEXT,
+        jellyfin_series_id TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (profile_id) REFERENCES notification_profiles(id) ON DELETE CASCADE,
+        FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE SET NULL
+      );
+      CREATE UNIQUE INDEX profile_media_interests_media_item_idx ON profile_media_interests(profile_id, media_item_id) WHERE media_item_id IS NOT NULL;
+      CREATE UNIQUE INDEX profile_media_interests_tmdb_idx ON profile_media_interests(profile_id, media_type, tmdb_id) WHERE tmdb_id IS NOT NULL;
+      CREATE INDEX profile_media_interests_profile_idx ON profile_media_interests(profile_id, enabled);
+      CREATE INDEX profile_media_interests_lookup_idx ON profile_media_interests(media_item_id, tmdb_id, jellyfin_series_id, enabled);
+
+      ALTER TABLE media_items ADD COLUMN jellyfin_item_id TEXT;
+      ALTER TABLE media_items ADD COLUMN jellyfin_series_id TEXT;
+      ALTER TABLE media_items ADD COLUMN year TEXT;
+      CREATE INDEX media_items_jellyfin_item_idx ON media_items(jellyfin_item_id);
+      CREATE INDEX media_items_jellyfin_series_idx ON media_items(jellyfin_series_id);
+
+      ALTER TABLE message_receipts ADD COLUMN profile_phone_number_id INTEGER REFERENCES notification_profile_phone_numbers(id) ON DELETE SET NULL;
+      DROP INDEX IF EXISTS message_receipts_event_profile_channel_idx;
+      CREATE UNIQUE INDEX message_receipts_event_profile_phone_channel_idx ON message_receipts(event_dedupe_key, profile_id, profile_phone_number_id, channel) WHERE event_dedupe_key IS NOT NULL;
+      CREATE INDEX message_receipts_profile_phone_idx ON message_receipts(profile_phone_number_id, created_at);
+    `,
+  },
 ];
 
 export function runMigrations(db: DB): void {

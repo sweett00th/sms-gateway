@@ -1,4 +1,4 @@
-# ObservaRR Agent Notes
+﻿# ObservaRR Agent Notes
 
 This repo is a custom internal Unraid Docker app named `observarr`. The user-facing product name is `ObservaRR`.
 
@@ -32,10 +32,14 @@ Current durable architecture decisions:
 - Keep the app LAN-only. Do not assume public proxying, Cloudflare, or NPM.
 - Secrets must be configured through environment variables in Unraid and must not be committed.
 - Textbelt is the only supported SMS provider. Do not add Twilio, Telnyx, Plivo, SMTP, or other delivery providers without an explicit request.
-- `NOTIFICATIONS_ENABLED=false` is the safe default; real SMS requires `NOTIFICATIONS_ENABLED=true`, `TEXTBELT_KEY`, explicit profile SMS opt-in, and matching profile event preferences.
+- `NOTIFICATIONS_ENABLED=false` is the safe default; real SMS requires `NOTIFICATIONS_ENABLED=true`, `TEXTBELT_KEY`, an enabled profile phone number with explicit opt-in, matching profile event preferences, and when media is identified a matching profile media interest.
 - Jellyfin import uses server-only `JELLYFIN_URL` and `JELLYFIN_API_KEY`; never return or log the API key.
 - Notification profiles are future recipients, not ObservaRR login users, and imported people must not be automatically opted into notifications or SMS consent.
 - Event templates are global per `(source, event_type)`; profile preferences only determine recipient interest and future channel eligibility.
 - Email templates may be stored and previewed, but email transport is not implemented.
 - Imported Jellyfin avatars are cached under `/data/avatars` and served only through authenticated profile avatar routes.
 - Webhook routes may use the optional `SHARED_SECRET` header check via `x-sms-secret`.
+- Textbelt reply handling is exposed at `POST /webhook/textbelt/reply`; keep it free of shared-secret requirements because Textbelt posts directly to it.
+- Do not send SMS opt-in welcome texts automatically. Admins trigger welcome texts per phone number or for unsent numbers on a profile.
+- Profiles may have multiple phone numbers. Dispatch uses enabled, opted-in phone-number rows, not the legacy single profile phone field.
+- Media notification dispatch is gated by profile media interests. Profiles default to zero movie/series interests.

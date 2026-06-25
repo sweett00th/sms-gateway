@@ -1,9 +1,17 @@
-﻿import AddIcon from "@mui/icons-material/Add";
+import AddIcon from "@mui/icons-material/Add";
 import EmailIcon from "@mui/icons-material/Email";
+import DeleteIcon from "@mui/icons-material/Delete";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import MarkEmailUnreadIcon from "@mui/icons-material/MarkEmailUnread";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import NotificationsOffIcon from "@mui/icons-material/NotificationsOff";
 import ImportExportIcon from "@mui/icons-material/ImportExport";
 import PhoneIcon from "@mui/icons-material/Phone";
 import SearchIcon from "@mui/icons-material/Search";
-import { type TemplateCatalogEvent, TemplateEditorDialog } from "./TemplateEditorDialog";
+import {
+  type TemplateCatalogEvent,
+  TemplateEditorDialog,
+} from "./TemplateEditorDialog";
 import {
   Alert,
   Avatar,
@@ -17,6 +25,7 @@ import {
   Divider,
   FormControlLabel,
   Grid,
+  IconButton,
   InputAdornment,
   List,
   ListItemAvatar,
@@ -58,6 +67,35 @@ type ProfilePreference = {
   notifyEmail: boolean;
 };
 
+type ProfilePhoneNumber = {
+  id: number;
+  phoneNumber: string;
+  label: string | null;
+  enabled: boolean;
+  optInState: "not_sent" | "pending" | "opted_in" | "opted_out" | "disabled";
+  welcomeSentAt: string | null;
+  optedInAt: string | null;
+  optedOutAt: string | null;
+  lastResponseText: string | null;
+  lastResponseAt: string | null;
+};
+
+type ProfileMediaInterest = {
+  id: number;
+  title: string;
+  mediaType: string | null;
+  tmdbId: string | null;
+  year: string | null;
+  enabled: boolean;
+};
+
+type PhoneReceipt = {
+  id: number;
+  eventTitle: string | null;
+  submissionStatus: string;
+  deliveryStatus: string;
+  createdAt: string;
+};
 type ProfileDetails = {
   id: number;
   displayName: string;
@@ -72,6 +110,8 @@ type ProfileDetails = {
   updatedAt: string;
   identities: ProfileIdentity[];
   preferences: ProfilePreference[];
+  phoneNumbers: ProfilePhoneNumber[];
+  mediaInterests: ProfileMediaInterest[];
 };
 
 type EventCatalogGroup = {
@@ -100,6 +140,14 @@ type EditorState = {
   seerrUsername: string;
   seerrEmail: string;
   smsOptedIn: boolean;
+  phoneNumbers: Array<{
+    id?: number;
+    phoneNumber: string;
+    label: string;
+    enabled: boolean;
+    optInState?: ProfilePhoneNumber["optInState"];
+    lastResponseText?: string | null;
+  }>;
   preferences: Record<string, ProfilePreference>;
 };
 
@@ -127,7 +175,13 @@ export function NotificationProfilesManager({
   const [message, setMessage] = useState<
     { severity: "success" | "error" | "info"; text: string } | null
   >(null);
-  const [templateEditorEvent, setTemplateEditorEvent] = useState<TemplateCatalogEvent | null>(null);
+  const [templateEditorEvent, setTemplateEditorEvent] = useState<
+    TemplateCatalogEvent | null
+  >(null);
+  const [expandedPhoneId, setExpandedPhoneId] = useState<number | null>(null);
+  const [phoneReceipts, setPhoneReceipts] = useState<
+    Record<number, PhoneReceipt[]>
+  >({});
 
   useEffect(() => {
     if (!open) {
@@ -157,7 +211,8 @@ export function NotificationProfilesManager({
     fetchProfile(selectedId);
   }, [selectedId, catalog]);
 
-  const selectedSummary = profiles.find((profile) => profile.id === selectedId) ?? null;
+  const selectedSummary =
+    profiles.find((profile) => profile.id === selectedId) ?? null;
 
   async function fetchCatalog() {
     const response = await fetch("/api/event-templates/catalog");
@@ -177,7 +232,9 @@ export function NotificationProfilesManager({
   async function fetchProfiles() {
     setLoadingList(true);
     try {
-      const response = await fetch(`/api/notification-profiles?query=${encodeURIComponent(query)}`);
+      const response = await fetch(
+        `/api/notification-profiles?query=${encodeURIComponent(query)}`,
+      );
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "Could not load profiles");
@@ -189,7 +246,9 @@ export function NotificationProfilesManager({
     } catch (error) {
       setMessage({
         severity: "error",
-        text: error instanceof Error ? error.message : "Could not load profiles",
+        text: error instanceof Error
+          ? error.message
+          : "Could not load profiles",
       });
     } finally {
       setLoadingList(false);
@@ -236,7 +295,9 @@ export function NotificationProfilesManager({
     } catch (error) {
       setMessage({
         severity: "error",
-        text: error instanceof Error ? error.message : "Could not create profile",
+        text: error instanceof Error
+          ? error.message
+          : "Could not create profile",
       });
     } finally {
       setSaving(false);
@@ -247,7 +308,9 @@ export function NotificationProfilesManager({
     setImporting(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/integrations/jellyfin/import-users", { method: "POST" });
+      const response = await fetch("/api/integrations/jellyfin/import-users", {
+        method: "POST",
+      });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "Jellyfin import failed");
@@ -281,40 +344,55 @@ export function NotificationProfilesManager({
     setSaving(true);
     setMessage(null);
     try {
-      const patchResponse = await fetch(`/api/notification-profiles/${details.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          displayName: editor.displayName,
-          enabled: editor.enabled,
-          phoneNumber: editor.phoneNumber,
-          emailAddress: editor.emailAddress,
-          smsOptedIn: editor.smsOptedIn,
-          identities: {
-            jellyfin: editor.jellyfinUserId || editor.jellyfinUsername
-              ? { externalUserId: editor.jellyfinUserId, username: editor.jellyfinUsername }
-              : null,
-            seerr: editor.seerrUserId || editor.seerrUsername || editor.seerrEmail
-              ? {
-                externalUserId: editor.seerrUserId,
-                username: editor.seerrUsername,
-                email: editor.seerrEmail,
-              }
-              : null,
-          },
-        }),
-      });
+      const patchResponse = await fetch(
+        `/api/notification-profiles/${details.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            displayName: editor.displayName,
+            enabled: editor.enabled,
+            phoneNumber: editor.phoneNumbers[0]?.phoneNumber ?? "",
+            emailAddress: editor.emailAddress,
+            phoneNumbers: editor.phoneNumbers.map((phone) => ({
+              id: phone.id,
+              phoneNumber: phone.phoneNumber,
+              label: phone.label,
+              enabled: phone.enabled,
+            })),
+            identities: {
+              jellyfin: editor.jellyfinUserId || editor.jellyfinUsername
+                ? {
+                  externalUserId: editor.jellyfinUserId,
+                  username: editor.jellyfinUsername,
+                }
+                : null,
+              seerr:
+                editor.seerrUserId || editor.seerrUsername || editor.seerrEmail
+                  ? {
+                    externalUserId: editor.seerrUserId,
+                    username: editor.seerrUsername,
+                    email: editor.seerrEmail,
+                  }
+                  : null,
+            },
+          }),
+        },
+      );
       const patchData = await patchResponse.json();
       if (!patchResponse.ok) {
         throw new Error(patchData.error || "Could not save profile");
       }
 
       const preferences = Object.values(editor.preferences);
-      const prefResponse = await fetch(`/api/notification-profiles/${details.id}/preferences`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences }),
-      });
+      const prefResponse = await fetch(
+        `/api/notification-profiles/${details.id}/preferences`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferences }),
+        },
+      );
       const prefData = await prefResponse.json();
       if (!prefResponse.ok) {
         throw new Error(prefData.error || "Could not save preferences");
@@ -324,7 +402,10 @@ export function NotificationProfilesManager({
       setEditor(toEditorState(prefData.profile, catalog));
       await fetchProfiles();
       onChanged();
-      setMessage({ severity: "success", text: "Profile saved. No messages were sent." });
+      setMessage({
+        severity: "success",
+        text: "Profile saved. No messages were sent.",
+      });
     } catch (error) {
       setMessage({
         severity: "error",
@@ -335,12 +416,13 @@ export function NotificationProfilesManager({
     }
   }
 
-  const profileInitials = (details?.displayName || selectedSummary?.displayName || "?")
-    .split(" ")
-    .map((part) => part.charAt(0))
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const profileInitials =
+    (details?.displayName || selectedSummary?.displayName || "?")
+      .split(" ")
+      .map((part) => part.charAt(0))
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl">
@@ -351,7 +433,11 @@ export function NotificationProfilesManager({
             item
             xs={12}
             md={4}
-            sx={{ borderRight: { md: "1px solid" }, borderColor: "divider", p: 2 }}
+            sx={{
+              borderRight: { md: "1px solid" },
+              borderColor: "divider",
+              p: 2,
+            }}
           >
             <Stack spacing={2}>
               <Stack direction="row" spacing={1} alignItems="center">
@@ -389,7 +475,9 @@ export function NotificationProfilesManager({
                   {importing ? "Importing" : "Import Jellyfin Users"}
                 </Button>
               </Stack>
-              {message && <Alert severity={message.severity}>{message.text}</Alert>}
+              {message && (
+                <Alert severity={message.severity}>{message.text}</Alert>
+              )}
               <List dense sx={{ maxHeight: 555, overflowY: "auto" }}>
                 {profiles.map((profile) => (
                   <ListItemButton
@@ -446,7 +534,9 @@ export function NotificationProfilesManager({
                   </ListItemButton>
                 ))}
                 {!loadingList && profiles.length === 0 && (
-                  <Typography color="text.secondary" sx={{ p: 2 }}>No profiles found.</Typography>
+                  <Typography color="text.secondary" sx={{ p: 2 }}>
+                    No profiles found.
+                  </Typography>
                 )}
               </List>
             </Stack>
@@ -454,7 +544,11 @@ export function NotificationProfilesManager({
 
           <Grid item xs={12} md={8} sx={{ p: 3 }}>
             {!editor || !details
-              ? <Alert severity="info">Select or create a notification profile.</Alert>
+              ? (
+                <Alert severity="info">
+                  Select or create a notification profile.
+                </Alert>
+              )
               : (
                 <Stack spacing={3}>
                   <Stack direction="row" spacing={2} alignItems="center">
@@ -469,9 +563,12 @@ export function NotificationProfilesManager({
                       {profileInitials}
                     </Avatar>
                     <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6">{details.displayName}</Typography>
+                      <Typography variant="h6">
+                        {details.displayName}
+                      </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Notification recipient profile. This is not an ObservaRR login account.
+                        Notification recipient profile. This is not an ObservaRR
+                        login account.
                       </Typography>
                     </Box>
                     <FormControlLabel
@@ -479,14 +576,19 @@ export function NotificationProfilesManager({
                         <Switch
                           checked={editor.enabled}
                           onChange={(event) =>
-                            setEditor({ ...editor, enabled: event.target.checked })}
+                            setEditor({
+                              ...editor,
+                              enabled: event.target.checked,
+                            })}
                         />
                       }
                       label={editor.enabled ? "Enabled" : "Disabled"}
                     />
                   </Stack>
 
-                  {loadingDetails && <Alert severity="info">Loading profile...</Alert>}
+                  {loadingDetails && (
+                    <Alert severity="info">Loading profile...</Alert>
+                  )}
 
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>
@@ -494,50 +596,53 @@ export function NotificationProfilesManager({
                         label="Display name"
                         value={editor.displayName}
                         onChange={(event) =>
-                          setEditor({ ...editor, displayName: event.target.value })}
+                          setEditor({
+                            ...editor,
+                            displayName: event.target.value,
+                          })}
                         fullWidth
                       />
                     </Grid>
-                    <Grid item xs={12} md={3}>
-                      <TextField
-                        label="Phone number"
-                        value={editor.phoneNumber}
-                        onChange={(event) =>
-                          setEditor({ ...editor, phoneNumber: event.target.value })}
-                        helperText="Stored for SMS. Use a 10-digit U.S. number, or +country code for international."
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={3}>
+                    <Grid item xs={12} md={6}>
                       <TextField
                         label="Email address"
                         value={editor.emailAddress}
                         onChange={(event) =>
-                          setEditor({ ...editor, emailAddress: event.target.value })}
+                          setEditor({
+                            ...editor,
+                            emailAddress: event.target.value,
+                          })}
                         helperText="Stored for future email delivery."
                         fullWidth
                       />
                     </Grid>
                     <Grid item xs={12}>
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={editor.smsOptedIn}
-                            onChange={(event) =>
-                              setEditor({ ...editor, smsOptedIn: event.target.checked })}
-                          />
-                        }
-                        label="Recipient has explicitly opted in to ObservaRR SMS notifications."
+                      <PhoneNumbersEditor
+                        profileId={details.id}
+                        phones={editor.phoneNumbers}
+                        expandedPhoneId={expandedPhoneId}
+                        receipts={phoneReceipts}
+                        onExpandedPhoneId={setExpandedPhoneId}
+                        onReceipts={setPhoneReceipts}
+                        onChange={(phoneNumbers) =>
+                          setEditor({ ...editor, phoneNumbers })}
+                        onChanged={() => fetchProfile(details.id)}
                       />
                     </Grid>
                   </Grid>
 
                   <Box>
-                    <Typography variant="subtitle1" gutterBottom>Identity mappings</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Jellyfin mappings can be imported and refreshed. Seerr mappings are manually
-                      editable. Mapping a user does not create a login account or enable
-                      notifications.
+                    <Typography variant="subtitle1" gutterBottom>
+                      Identity mappings
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mb: 2 }}
+                    >
+                      Jellyfin mappings can be imported and refreshed. Seerr
+                      mappings are manually editable. Mapping a user does not
+                      create a login account or enable notifications.
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={6}>
@@ -545,7 +650,10 @@ export function NotificationProfilesManager({
                           label="Jellyfin user ID"
                           value={editor.jellyfinUserId}
                           onChange={(event) =>
-                            setEditor({ ...editor, jellyfinUserId: event.target.value })}
+                            setEditor({
+                              ...editor,
+                              jellyfinUserId: event.target.value,
+                            })}
                           fullWidth
                         />
                       </Grid>
@@ -554,7 +662,10 @@ export function NotificationProfilesManager({
                           label="Jellyfin username"
                           value={editor.jellyfinUsername}
                           onChange={(event) =>
-                            setEditor({ ...editor, jellyfinUsername: event.target.value })}
+                            setEditor({
+                              ...editor,
+                              jellyfinUsername: event.target.value,
+                            })}
                           fullWidth
                         />
                       </Grid>
@@ -563,7 +674,10 @@ export function NotificationProfilesManager({
                           label="Seerr user ID"
                           value={editor.seerrUserId}
                           onChange={(event) =>
-                            setEditor({ ...editor, seerrUserId: event.target.value })}
+                            setEditor({
+                              ...editor,
+                              seerrUserId: event.target.value,
+                            })}
                           fullWidth
                         />
                       </Grid>
@@ -572,7 +686,10 @@ export function NotificationProfilesManager({
                           label="Seerr username"
                           value={editor.seerrUsername}
                           onChange={(event) =>
-                            setEditor({ ...editor, seerrUsername: event.target.value })}
+                            setEditor({
+                              ...editor,
+                              seerrUsername: event.target.value,
+                            })}
                           fullWidth
                         />
                       </Grid>
@@ -581,7 +698,10 @@ export function NotificationProfilesManager({
                           label="Seerr email"
                           value={editor.seerrEmail}
                           onChange={(event) =>
-                            setEditor({ ...editor, seerrEmail: event.target.value })}
+                            setEditor({
+                              ...editor,
+                              seerrEmail: event.target.value,
+                            })}
                           fullWidth
                         />
                       </Grid>
@@ -590,26 +710,70 @@ export function NotificationProfilesManager({
 
                   <Box>
                     <Typography variant="subtitle1" gutterBottom>
+                      Subscribed media
+                    </Typography>
+                    {details.mediaInterests.length === 0
+                      ? (
+                        <Alert severity="info">
+                          This profile is not subscribed to any movies or series
+                          yet.
+                        </Alert>
+                      )
+                      : (
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          sx={{ flexWrap: "wrap", gap: 1 }}
+                        >
+                          {details.mediaInterests.map((interest) => (
+                            <Chip
+                              key={interest.id}
+                              label={`${interest.title}${
+                                interest.year ? ` (${interest.year})` : ""
+                              }${
+                                interest.mediaType
+                                  ? ` - ${interest.mediaType}`
+                                  : ""
+                              }`}
+                              color={interest.enabled ? "primary" : "default"}
+                              variant={interest.enabled ? "filled" : "outlined"}
+                            />
+                          ))}
+                        </Stack>
+                      )}
+                  </Box>
+                  <Box>
+                    <Typography variant="subtitle1" gutterBottom>
                       Event interests and delivery channels
                     </Typography>
-                    {(!editor.phoneNumber || !editor.smsOptedIn) && (
+                    {(!editor.phoneNumbers.some((phone) =>
+                      phone.enabled && phone.optInState === "opted_in"
+                    )) && (
                       <Alert severity="warning" sx={{ mb: 2 }}>
-                        Missing phone or SMS opt-in prevents SMS dispatch. Email templates are
-                        stored, but email delivery is not configured yet.
+                        No enabled phone number has confirmed SMS opt-in. Email
+                        templates are stored, but email delivery is not
+                        configured yet.
                       </Alert>
                     )}
                     <Stack spacing={2}>
                       {catalog.map((group) => (
                         <Box
                           key={group.source}
-                          sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1 }}
+                          sx={{
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: 1,
+                          }}
                         >
                           <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
                             {group.label}
                           </Typography>
                           <Divider />
                           {group.events.map((event) => {
-                            const key = preferenceKey(group.source, event.eventType);
+                            const key = preferenceKey(
+                              group.source,
+                              event.eventType,
+                            );
                             const preference = editor.preferences[key];
                             return (
                               <Grid
@@ -635,11 +799,14 @@ export function NotificationProfilesManager({
                                       label={event.template?.hasSmsTemplate
                                         ? "SMS template"
                                         : "No SMS template"}
-                                      color={event.template?.hasSmsTemplate ? "success" : "default"}
+                                      color={event.template?.hasSmsTemplate
+                                        ? "success"
+                                        : "default"}
                                     />
                                     <Chip
                                       size="small"
-                                      label={event.template?.hasEmailSubjectTemplate &&
+                                      label={event.template
+                                          ?.hasEmailSubjectTemplate &&
                                           event.template?.hasEmailBodyTemplate
                                         ? "Email template"
                                         : "Email incomplete"}
@@ -658,9 +825,14 @@ export function NotificationProfilesManager({
                                       <Checkbox
                                         checked={preference.enabled}
                                         onChange={(change) =>
-                                          setPreference(editor, setEditor, key, {
-                                            enabled: change.target.checked,
-                                          })}
+                                          setPreference(
+                                            editor,
+                                            setEditor,
+                                            key,
+                                            {
+                                              enabled: change.target.checked,
+                                            },
+                                          )}
                                       />
                                     }
                                     label="Interested"
@@ -672,9 +844,14 @@ export function NotificationProfilesManager({
                                       <Checkbox
                                         checked={preference.notifySms}
                                         onChange={(change) =>
-                                          setPreference(editor, setEditor, key, {
-                                            notifySms: change.target.checked,
-                                          })}
+                                          setPreference(
+                                            editor,
+                                            setEditor,
+                                            key,
+                                            {
+                                              notifySms: change.target.checked,
+                                            },
+                                          )}
                                       />
                                     }
                                     label="SMS"
@@ -686,9 +863,15 @@ export function NotificationProfilesManager({
                                       <Checkbox
                                         checked={preference.notifyEmail}
                                         onChange={(change) =>
-                                          setPreference(editor, setEditor, key, {
-                                            notifyEmail: change.target.checked,
-                                          })}
+                                          setPreference(
+                                            editor,
+                                            setEditor,
+                                            key,
+                                            {
+                                              notifyEmail:
+                                                change.target.checked,
+                                            },
+                                          )}
                                       />
                                     }
                                     label="Email"
@@ -698,7 +881,8 @@ export function NotificationProfilesManager({
                                   <Button
                                     size="small"
                                     variant="outlined"
-                                    onClick={() => setTemplateEditorEvent(event)}
+                                    onClick={() =>
+                                      setTemplateEditorEvent(event)}
                                   >
                                     Edit Template
                                   </Button>
@@ -714,11 +898,16 @@ export function NotificationProfilesManager({
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
                     <Button
                       variant="outlined"
-                      onClick={() => details && setEditor(toEditorState(details, catalog))}
+                      onClick={() =>
+                        details && setEditor(toEditorState(details, catalog))}
                     >
                       Reset
                     </Button>
-                    <Button variant="contained" onClick={saveProfile} disabled={saving}>
+                    <Button
+                      variant="contained"
+                      onClick={saveProfile}
+                      disabled={saving}
+                    >
                       {saving ? "Saving" : "Save Profile"}
                     </Button>
                   </Stack>
@@ -755,7 +944,9 @@ export function NotificationProfilesActions({
     setMessage(null);
     setError(null);
     try {
-      const response = await fetch("/api/integrations/jellyfin/import-users", { method: "POST" });
+      const response = await fetch("/api/integrations/jellyfin/import-users", {
+        method: "POST",
+      });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "Jellyfin import failed");
@@ -766,7 +957,11 @@ export function NotificationProfilesActions({
       );
       onImported();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Jellyfin import failed");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Jellyfin import failed",
+      );
     } finally {
       setImporting(false);
     }
@@ -774,10 +969,19 @@ export function NotificationProfilesActions({
 
   return (
     <Stack spacing={1.5}>
-      <Typography variant="body2" color="text.secondary">{count} profiles configured.</Typography>
+      <Typography variant="body2" color="text.secondary">
+        {count} profiles configured.
+      </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-        <Button size="small" variant="outlined" onClick={onManage}>Manage Profiles</Button>
-        <Button size="small" variant="outlined" onClick={importUsers} disabled={importing}>
+        <Button size="small" variant="outlined" onClick={onManage}>
+          Manage Profiles
+        </Button>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={importUsers}
+          disabled={importing}
+        >
           {importing ? "Importing" : "Import Jellyfin Users"}
         </Button>
       </Box>
@@ -787,7 +991,10 @@ export function NotificationProfilesActions({
   );
 }
 
-function toEditorState(profile: ProfileDetails, catalog: EventCatalogGroup[]): EditorState {
+function toEditorState(
+  profile: ProfileDetails,
+  catalog: EventCatalogGroup[],
+): EditorState {
   const identityByProvider = new Map(
     profile.identities.map((identity) => [identity.provider, identity]),
   );
@@ -825,6 +1032,14 @@ function toEditorState(profile: ProfileDetails, catalog: EventCatalogGroup[]): E
     seerrUsername: seerr?.username ?? "",
     seerrEmail: seerr?.email ?? "",
     smsOptedIn: Boolean(profile.smsOptedInAt && !profile.smsOptedOutAt),
+    phoneNumbers: (profile.phoneNumbers ?? []).map((phone) => ({
+      id: phone.id,
+      phoneNumber: phone.phoneNumber,
+      label: phone.label ?? "",
+      enabled: phone.enabled,
+      optInState: phone.optInState,
+      lastResponseText: phone.lastResponseText,
+    })),
     preferences,
   };
 }
@@ -860,3 +1075,317 @@ function initials(name: string): string {
     .toUpperCase() || "?";
 }
 
+type PhoneNumbersEditorProps = {
+  profileId: number;
+  phones: EditorState["phoneNumbers"];
+  expandedPhoneId: number | null;
+  receipts: Record<number, PhoneReceipt[]>;
+  onExpandedPhoneId: (id: number | null) => void;
+  onReceipts: (receipts: Record<number, PhoneReceipt[]>) => void;
+  onChange: (phones: EditorState["phoneNumbers"]) => void;
+  onChanged: () => void;
+};
+
+function PhoneNumbersEditor(props: PhoneNumbersEditorProps) {
+  const {
+    profileId,
+    phones,
+    expandedPhoneId,
+    receipts,
+    onExpandedPhoneId,
+    onReceipts,
+    onChange,
+    onChanged,
+  } = props;
+  async function sendWelcome(phoneId: number) {
+    const response = await fetch(
+      `/api/notification-profiles/${profileId}/phone-numbers/${phoneId}/send-opt-in`,
+      { method: "POST" },
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Could not send opt-in text");
+    }
+    onChanged();
+  }
+
+  async function sendAllPending() {
+    const response = await fetch(
+      `/api/notification-profiles/${profileId}/phone-numbers/send-pending-opt-ins`,
+      { method: "POST" },
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Could not send opt-in texts");
+    }
+    onChanged();
+  }
+
+  async function toggleReceipts(phoneId?: number) {
+    if (!phoneId) return;
+    if (expandedPhoneId === phoneId) {
+      onExpandedPhoneId(null);
+      return;
+    }
+    const response = await fetch(
+      `/api/notification-profiles/${profileId}/phone-numbers/${phoneId}/receipts`,
+    );
+    const data = await response.json();
+    if (response.ok) {
+      onReceipts({ ...receipts, [phoneId]: data.receipts });
+      onExpandedPhoneId(phoneId);
+    }
+  }
+
+  function update(
+    index: number,
+    patch: Partial<EditorState["phoneNumbers"][number]>,
+  ) {
+    onChange(
+      phones.map((phone, phoneIndex) =>
+        phoneIndex === index ? { ...phone, ...patch } : phone
+      ),
+    );
+  }
+
+  return (
+    <Stack spacing={1.25}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        alignItems={{ xs: "stretch", sm: "center" }}
+        justifyContent="space-between"
+      >
+        <Box>
+          <Typography variant="subtitle2">Phone numbers</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Each number has its own opt-in state and dispatch toggle.
+          </Typography>
+        </Box>
+        <Stack
+          direction="row"
+          spacing={1}
+          justifyContent={{ xs: "flex-start", sm: "flex-end" }}
+        >
+          <Button size="small" variant="outlined" onClick={sendAllPending}>
+            Send pending opt-ins
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() =>
+              onChange([...phones, {
+                phoneNumber: "",
+                label: "",
+                enabled: true,
+                optInState: "not_sent",
+              }])}
+          >
+            Add
+          </Button>
+        </Stack>
+      </Stack>
+      {phones.length === 0 && (
+        <Alert severity="info">
+          No phone numbers. Add a number, save the profile, then send its opt-in
+          text.
+        </Alert>
+      )}
+      <Stack spacing={1}>
+        {phones.map((phone, index) => {
+          const icon = phoneIcon(phone);
+          return (
+            <Box
+              key={phone.id ?? `new-${index}`}
+              sx={{
+                border: "1px solid",
+                borderColor: "divider",
+                borderRadius: 1,
+                px: { xs: 1.25, md: 1.5 },
+                py: 1.25,
+                bgcolor: "background.paper",
+              }}
+            >
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "32px 1fr",
+                    md:
+                      "32px minmax(220px, 1.2fr) minmax(150px, 0.8fr) 132px minmax(220px, 1fr) auto",
+                  },
+                  columnGap: 1.25,
+                  rowGap: 1,
+                  alignItems: "start",
+                }}
+              >
+                <IconButton
+                  size="small"
+                  disabled={!phone.id}
+                  onClick={() => toggleReceipts(phone.id)}
+                  title={phone.id
+                    ? "Show receipts"
+                    : "Save profile before viewing receipts"}
+                  sx={{ mt: 0.75 }}
+                >
+                  {icon}
+                </IconButton>
+                <TextField
+                  size="small"
+                  label="Phone"
+                  value={phone.phoneNumber}
+                  onChange={(event) =>
+                    update(index, { phoneNumber: event.target.value })}
+                  placeholder="5555551234"
+                  helperText="10-digit U.S. or +country code"
+                  fullWidth
+                  sx={{ gridColumn: { xs: "2 / 3", md: "auto" } }}
+                />
+                <TextField
+                  size="small"
+                  label="Label"
+                  value={phone.label}
+                  onChange={(event) =>
+                    update(index, { label: event.target.value })}
+                  placeholder="Mobile"
+                  fullWidth
+                  sx={{ gridColumn: { xs: "2 / 3", md: "auto" } }}
+                />
+                <FormControlLabel
+                  sx={{
+                    m: 0,
+                    gridColumn: { xs: "2 / 3", md: "auto" },
+                    minHeight: 40,
+                    whiteSpace: "nowrap",
+                  }}
+                  control={
+                    <Switch
+                      size="small"
+                      checked={phone.enabled}
+                      onChange={(event) =>
+                        update(index, { enabled: event.target.checked })}
+                    />
+                  }
+                  label={phone.enabled ? "Enabled" : "Disabled"}
+                />
+                <Box
+                  sx={{
+                    gridColumn: { xs: "2 / 3", md: "auto" },
+                    lineHeight: 1.35,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                  >
+                    {phoneStateLabel(phone)}
+                  </Typography>
+                  {phone.lastResponseText && (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      display="block"
+                    >
+                      Last reply: {phone.lastResponseText}
+                    </Typography>
+                  )}
+                </Box>
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  justifyContent={{ xs: "flex-start", md: "flex-end" }}
+                  sx={{ gridColumn: { xs: "2 / 3", md: "auto" } }}
+                >
+                  {phone.id && phone.optInState === "not_sent" && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => sendWelcome(phone.id!)}
+                      sx={{ whiteSpace: "nowrap" }}
+                    >
+                      Send opt-in
+                    </Button>
+                  )}
+                  <IconButton
+                    size="small"
+                    onClick={() =>
+                      onChange(
+                        phones.filter((_, phoneIndex) => phoneIndex !== index),
+                      )}
+                    title="Remove phone"
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              </Box>
+              {phone.id && expandedPhoneId === phone.id && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    ml: { xs: 5, md: 4 },
+                    pt: 1,
+                    borderTop: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  {(receipts[phone.id] ?? []).length === 0
+                    ? (
+                      <Typography variant="caption" color="text.secondary">
+                        No receipts for this number.
+                      </Typography>
+                    )
+                    : (receipts[phone.id] ?? []).map((receipt) => (
+                      <Typography
+                        key={receipt.id}
+                        variant="caption"
+                        display="block"
+                        color="text.secondary"
+                      >
+                        {new Date(receipt.createdAt).toLocaleString()} -{" "}
+                        {receipt.eventTitle ?? "SMS"} -{" "}
+                        {receipt.submissionStatus}/{receipt.deliveryStatus}
+                      </Typography>
+                    ))}
+                </Box>
+              )}
+            </Box>
+          );
+        })}
+      </Stack>
+    </Stack>
+  );
+}
+
+function phoneIcon(
+  phone: { enabled: boolean; optInState?: ProfilePhoneNumber["optInState"] },
+) {
+  if (
+    !phone.enabled || phone.optInState === "disabled" ||
+    phone.optInState === "opted_out"
+  ) {
+    return <NotificationsOffIcon color="disabled" fontSize="small" />;
+  }
+  if (phone.optInState === "opted_in") {
+    return <NotificationsIcon color="success" fontSize="small" />;
+  }
+  if (phone.optInState === "pending") {
+    return <HourglassEmptyIcon color="warning" fontSize="small" />;
+  }
+  return <MarkEmailUnreadIcon color="action" fontSize="small" />;
+}
+
+function phoneStateLabel(
+  phone: { enabled: boolean; optInState?: ProfilePhoneNumber["optInState"] },
+) {
+  if (!phone.enabled || phone.optInState === "disabled") {
+    return "Disabled for SMS dispatch.";
+  }
+  if (phone.optInState === "opted_in") return "Confirmed opt-in.";
+  if (phone.optInState === "opted_out") return "Opted out.";
+  if (phone.optInState === "pending") {
+    return "Opt-in text sent; awaiting reply.";
+  }
+  return "Opt-in welcome text has not been sent.";
+}
