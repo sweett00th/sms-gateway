@@ -917,7 +917,7 @@ function MediaTimelinesPage({
                 <Grid item xs={12} md={4}>
                   <Card
                     variant="outlined"
-                    sx={{ height: 560, display: "flex", flexDirection: "column" }}
+                    sx={{ height: 560, display: "flex", flexDirection: "column", overflow: "hidden" }}
                   >
                     <CardContent
                       sx={{
@@ -968,7 +968,9 @@ function MediaTimelinesPage({
                             Delete {selectedIds.length || ""}
                           </Button>
                         </Stack>
-                        <Stack spacing={1} sx={{ overflowY: "auto", pr: 0.5, flex: 1, minHeight: 0 }}>
+                        {/* Box is the scroll container; inner Stack lays out items without height constraints */}
+                        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", pr: 0.5 }}>
+                        <Stack spacing={1}>
                           {filteredItems.map((item) => (
                             <Card
                               key={item.id}
@@ -1012,6 +1014,7 @@ function MediaTimelinesPage({
                             </Card>
                           ))}
                         </Stack>
+                        </Box>
                       </Stack>
                     </CardContent>
                   </Card>

@@ -386,12 +386,18 @@ function mediaItemTemplateContext(
   const year = row[2] != null ? String(row[2]).trim() : null;
   const patch: Record<string, string> = {};
 
-  // media_items is the authoritative source — override whatever the raw payload derived
-  if (title) patch.mediaTitle = title;
+  // Year is always authoritative from media_items — it's aggregated across all source events
   if (year) patch.mediaYear = year;
-  if (title && mediaType === "movie") patch.movieTitle = title;
-  if (year && mediaType === "movie") patch.movieYear = year;
-  if (title && mediaType === "series") patch.seriesTitle = title;
+
+  if (mediaType === "movie") {
+    // For movies, title is stable in media_items (sourced from Radarr/Seerr which carry full metadata)
+    if (title) patch.mediaTitle = title;
+    if (title) patch.movieTitle = title;
+    if (year) patch.movieYear = year;
+  }
+  // For series: media_items.title is the season/episode name ("Season 3"), NOT the series name.
+  // seriesTitle and mediaTitle for series events come correctly from the raw payload
+  // (SeriesName → seriesTitle, Name → mediaTitle) — do not override them here.
 
   return patch;
 }
