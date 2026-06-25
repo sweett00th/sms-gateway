@@ -91,6 +91,15 @@ export async function dispatchNotificationsForEvent(
     return summary;
   }
 
+  // Overwrite media fields from the canonical media_items record — it aggregates data
+  // across all source events and is more reliable than any single payload
+  if (options.mediaItemId != null) {
+    Object.assign(
+      canonical.templateContext,
+      mediaItemTemplateContext(db, options.mediaItemId),
+    );
+  }
+
   logNotification("info", "notifications.dispatch.started", {
     eventId: event.id,
     source: canonical.source,
@@ -360,6 +369,31 @@ function getSmsEligibilitySummary(
     optedOut: Number(row[4] ?? 0),
     eligible: Number(row[5] ?? 0),
   };
+}
+
+function mediaItemTemplateContext(
+  db: Database,
+  id: number,
+): Record<string, string> {
+  const row = [...db.query(
+    "SELECT title, media_type, year FROM media_items WHERE id = ?",
+    [id],
+  )][0];
+  if (!row) return {};
+
+  const title = row[0] != null ? String(row[0]).trim() : null;
+  const mediaType = row[1] != null ? String(row[1]) : null;
+  const year = row[2] != null ? String(row[2]).trim() : null;
+  const patch: Record<string, string> = {};
+
+  // media_items is the authoritative source — override whatever the raw payload derived
+  if (title) patch.mediaTitle = title;
+  if (year) patch.mediaYear = year;
+  if (title && mediaType === "movie") patch.movieTitle = title;
+  if (year && mediaType === "movie") patch.movieYear = year;
+  if (title && mediaType === "series") patch.seriesTitle = title;
+
+  return patch;
 }
 
 function logNotification(
