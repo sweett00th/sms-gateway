@@ -1,4 +1,4 @@
-import type { Database } from "../db/index.ts";
+﻿import type { Database } from "../db/index.ts";
 import type { LiveEvent } from "../events/eventBus.ts";
 import { notificationsEnabled } from "../lib/config.ts";
 import {
@@ -21,6 +21,15 @@ import { renderTemplate } from "./templateRenderer.ts";
 
 type EligibleProfile = NotificationProfile & {
   preferenceId: number;
+};
+
+type SmsEligibilitySummary = {
+  subscriptionRows: number;
+  enabledProfiles: number;
+  withPhone: number;
+  optedIn: number;
+  optedOut: number;
+  eligible: number;
 };
 
 export type DispatchSummary = {
@@ -46,19 +55,61 @@ export async function dispatchNotificationsForEvent(
     skipped: 0,
   };
 
-  if (event.source === "test" || !notificationsEnabled()) {
+  if (event.source === "test") {
+    logNotification("info", "notifications.dispatch.skipped", {
+      reason: "test_event",
+      eventId: event.id,
+      source: event.source,
+      rawEventType: event.eventType,
+    });
+    return summary;
+  }
+
+  if (!notificationsEnabled()) {
+    logNotification("info", "notifications.dispatch.skipped", {
+      reason: "notifications_disabled",
+      eventId: event.id,
+      source: event.source,
+      rawEventType: event.eventType,
+    });
     return summary;
   }
 
   const canonical = buildCanonicalEventContext(event);
   if (!canonical) {
+    logNotification("warn", "notifications.dispatch.skipped", {
+      reason: "event_not_in_catalog",
+      eventId: event.id,
+      source: event.source,
+      rawEventType: event.eventType,
+    });
     return summary;
   }
 
+  logNotification("info", "notifications.dispatch.started", {
+    eventId: event.id,
+    source: canonical.source,
+    eventType: canonical.eventType,
+    dedupeKey: canonical.eventDedupeKey,
+  });
+
   const profiles = listEligibleSmsProfiles(db, canonical.source, canonical.eventType);
   if (profiles.length === 0) {
+    logNotification("info", "notifications.dispatch.no_eligible_profiles", {
+      eventId: event.id,
+      source: canonical.source,
+      eventType: canonical.eventType,
+      ...getSmsEligibilitySummary(db, canonical.source, canonical.eventType),
+    });
     return summary;
   }
+
+  logNotification("info", "notifications.dispatch.eligible_profiles", {
+    eventId: event.id,
+    source: canonical.source,
+    eventType: canonical.eventType,
+    eligibleProfiles: profiles.length,
+  });
 
   const template = getOrCreateEventTemplate(db, canonical.source, canonical.eventType);
 
@@ -80,6 +131,14 @@ export async function dispatchNotificationsForEvent(
 
     if (!receipt) {
       summary.skipped += 1;
+      logNotification("info", "notifications.dispatch.receipt_skipped", {
+        reason: "duplicate_event_profile_channel",
+        eventId: event.id,
+        profileId: profile.id,
+        source: canonical.source,
+        eventType: canonical.eventType,
+        dedupeKey: canonical.eventDedupeKey,
+      });
       continue;
     }
 
@@ -95,6 +154,14 @@ export async function dispatchNotificationsForEvent(
         missingVariables: rendered.missingVariables,
       });
       summary.renderFailed += 1;
+      logNotification("warn", "notifications.dispatch.render_failed", {
+        eventId: event.id,
+        receiptId: receipt.id,
+        profileId: profile.id,
+        source: canonical.source,
+        eventType: canonical.eventType,
+        missingVariables: rendered.missingVariables,
+      });
       continue;
     }
 
@@ -113,6 +180,16 @@ export async function dispatchNotificationsForEvent(
           response: result.response,
         });
         summary.submitted += 1;
+        logNotification("info", "notifications.dispatch.submitted", {
+          eventId: event.id,
+          receiptId: receipt.id,
+          profileId: profile.id,
+          source: canonical.source,
+          eventType: canonical.eventType,
+          provider: "textbelt",
+          providerMessageId: result.textId,
+          quotaRemaining: result.quotaRemaining,
+        });
       } else if (result.kind === "rejected") {
         markReceiptRejected(db, receipt.id, {
           error: result.error,
@@ -120,12 +197,31 @@ export async function dispatchNotificationsForEvent(
           response: result.response,
         });
         summary.rejected += 1;
+        logNotification("warn", "notifications.dispatch.rejected", {
+          eventId: event.id,
+          receiptId: receipt.id,
+          profileId: profile.id,
+          source: canonical.source,
+          eventType: canonical.eventType,
+          provider: "textbelt",
+          error: result.error,
+          quotaRemaining: result.quotaRemaining,
+        });
       } else {
         markReceiptSubmissionUnknown(db, receipt.id, {
           error: result.error,
           response: result.response,
         });
         summary.submissionUnknown += 1;
+        logNotification("warn", "notifications.dispatch.submission_unknown", {
+          eventId: event.id,
+          receiptId: receipt.id,
+          profileId: profile.id,
+          source: canonical.source,
+          eventType: canonical.eventType,
+          provider: "textbelt",
+          error: result.error,
+        });
       }
     } catch (error) {
       if (error instanceof TextbeltConfigurationError) {
@@ -135,14 +231,40 @@ export async function dispatchNotificationsForEvent(
           response: { configured: false },
         });
         summary.rejected += 1;
+        logNotification("warn", "notifications.dispatch.rejected", {
+          eventId: event.id,
+          receiptId: receipt.id,
+          profileId: profile.id,
+          source: canonical.source,
+          eventType: canonical.eventType,
+          provider: "textbelt",
+          error: error.message,
+        });
       } else {
+        const message = error instanceof Error ? error.message : "SMS submission failed ambiguously";
         markReceiptSubmissionUnknown(db, receipt.id, {
-          error: error instanceof Error ? error.message : "SMS submission failed ambiguously",
+          error: message,
         });
         summary.submissionUnknown += 1;
+        logNotification("error", "notifications.dispatch.submission_unknown", {
+          eventId: event.id,
+          receiptId: receipt.id,
+          profileId: profile.id,
+          source: canonical.source,
+          eventType: canonical.eventType,
+          provider: "textbelt",
+          error: message,
+        });
       }
     }
   }
+
+  logNotification("info", "notifications.dispatch.finished", {
+    eventId: event.id,
+    source: canonical.source,
+    eventType: canonical.eventType,
+    ...summary,
+  });
 
   return summary;
 }
@@ -184,4 +306,56 @@ function listEligibleSmsProfiles(
     updatedAt: String(row[10]),
     preferenceId: Number(row[11]),
   }));
+}
+
+function getSmsEligibilitySummary(
+  db: Database,
+  source: string,
+  eventType: string,
+): SmsEligibilitySummary {
+  const row = [...db.query(
+    `
+    SELECT
+      COUNT(*),
+      SUM(CASE WHEN np.enabled = 1 THEN 1 ELSE 0 END),
+      SUM(CASE WHEN np.enabled = 1 AND np.phone_number IS NOT NULL THEN 1 ELSE 0 END),
+      SUM(CASE WHEN np.enabled = 1 AND np.phone_number IS NOT NULL AND np.sms_opted_in_at IS NOT NULL THEN 1 ELSE 0 END),
+      SUM(CASE WHEN np.enabled = 1 AND np.sms_opted_out_at IS NOT NULL THEN 1 ELSE 0 END),
+      SUM(CASE WHEN np.enabled = 1
+        AND np.phone_number IS NOT NULL
+        AND np.sms_opted_in_at IS NOT NULL
+        AND np.sms_opted_out_at IS NULL
+      THEN 1 ELSE 0 END)
+    FROM profile_event_preferences pep
+    JOIN notification_profiles np ON np.id = pep.profile_id
+    WHERE pep.source = ?
+      AND pep.event_type = ?
+      AND pep.enabled = 1
+      AND pep.notify_sms = 1
+  `,
+    [source, eventType],
+  )][0] ?? [0, 0, 0, 0, 0, 0];
+
+  return {
+    subscriptionRows: Number(row[0] ?? 0),
+    enabledProfiles: Number(row[1] ?? 0),
+    withPhone: Number(row[2] ?? 0),
+    optedIn: Number(row[3] ?? 0),
+    optedOut: Number(row[4] ?? 0),
+    eligible: Number(row[5] ?? 0),
+  };
+}
+
+function logNotification(
+  level: "info" | "warn" | "error",
+  name: string,
+  fields: Record<string, unknown>,
+): void {
+  console[level](
+    JSON.stringify({
+      event: name,
+      at: new Date().toISOString(),
+      ...fields,
+    }),
+  );
 }
