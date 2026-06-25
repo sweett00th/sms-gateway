@@ -82,6 +82,7 @@ type ProfilePhoneNumber = {
 
 type ProfileMediaInterest = {
   id: number;
+  mediaItemId: number | null;
   title: string;
   mediaType: string | null;
   tmdbId: string | null;
