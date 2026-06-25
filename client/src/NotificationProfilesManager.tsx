@@ -1,4 +1,4 @@
-import AddIcon from "@mui/icons-material/Add";
+﻿import AddIcon from "@mui/icons-material/Add";
 import EmailIcon from "@mui/icons-material/Email";
 import ImportExportIcon from "@mui/icons-material/ImportExport";
 import PhoneIcon from "@mui/icons-material/Phone";
@@ -504,7 +504,7 @@ export function NotificationProfilesManager({
                         value={editor.phoneNumber}
                         onChange={(event) =>
                           setEditor({ ...editor, phoneNumber: event.target.value })}
-                        helperText="Stored for future SMS. Use +country code."
+                        helperText="Stored for SMS. Use a 10-digit U.S. number, or +country code for international."
                         fullWidth
                       />
                     </Grid>
@@ -859,3 +859,4 @@ function initials(name: string): string {
     .slice(0, 2)
     .toUpperCase() || "?";
 }
+

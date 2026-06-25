@@ -1,4 +1,4 @@
-import type { Database } from "../db/index.ts";
+﻿import type { Database } from "../db/index.ts";
 import { firstRow } from "../db/index.ts";
 import { getAvatarDirectory } from "../lib/config.ts";
 import { isKnownNotificationEvent } from "./eventCatalog.ts";
@@ -662,12 +662,18 @@ function normalizePhoneNumber(value: unknown): string | null {
   }
 
   if (!trimmed.startsWith("+")) {
-    throw new ValidationError("Phone number must include a country code, for example +15555550100");
+    const usNumber = trimmed.replace(/[\s().-]/g, "");
+    if (!/^\d{10}$/.test(usNumber)) {
+      throw new ValidationError(
+        "Phone number must be a 10-digit U.S. number or an international number starting with +",
+      );
+    }
+    return usNumber;
   }
 
   const normalized = `+${trimmed.slice(1).replace(/[\s().-]/g, "")}`;
   if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
-    throw new ValidationError("Phone number must be a valid E.164-style number");
+    throw new ValidationError("International phone number must be a valid E.164-style number");
   }
 
   return normalized;
@@ -776,3 +782,4 @@ function isIdentityProvider(value: string): value is IdentityProvider {
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
